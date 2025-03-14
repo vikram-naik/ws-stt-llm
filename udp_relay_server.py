@@ -5,43 +5,48 @@ import ssl
 import websockets
 from websockets import State
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
 
 udp_clients = {}  # {username: ws}
-calls = {}  # {call_id: {caller, callee, caller_group, callee_group}}
-audio_queue = asyncio.Queue()
+calls = {}  # {call_id: {caller, callee, caller_group, callee_group, queue}}
 
 async def transcribe_audio():
     while True:
-        call_id, group, audio_data = await audio_queue.get()
-        logging.info(f"Processing audio for transcription from call {call_id}: {len(audio_data)} bytes")
-        await asyncio.sleep(1)  # Dummy delay
-        text = f"Hello from transcription server ({group})"
-        if call_id in calls:
-            call = calls[call_id]
-            sales_users = []
-            if call['caller_group'] == 'sales':
-                sales_users.append(call['caller'])
-            if call['callee_group'] == 'sales':
-                sales_users.append(call['callee'])
-            for username in sales_users:
-                ws = udp_clients.get(username)
-                if ws and ws.state == State.OPEN:
-                    try:
-                        await ws.send(json.dumps({
-                            'event': 'transcription',
-                            'call_id': call_id,
-                            'group': group,
-                            'text': text
-                        }))
-                        logging.info(f"Sent transcription to sales client {username}: {text}")
-                    except Exception as e:
-                        logging.error(f"Failed to send transcription to {username}: {e}")
-        audio_queue.task_done()
+        await asyncio.sleep(0.1)  # Yield to other tasks
+        for call_id, call in list(calls.items()):
+            queue = call.get('queue')
+            if queue and not queue.empty():
+                try:
+                    group, audio_data = await asyncio.wait_for(queue.get(), timeout=0.1)
+                    logging.info(f"Processing audio for transcription from call {call_id}: {len(audio_data)} bytes")
+                    await asyncio.sleep(1)  # Dummy delay
+                    text = f"Hello from transcription server ({group})"
+                    sales_users = []
+                    if call['caller_group'] == 'sales':
+                        sales_users.append(call['caller'])
+                    if call['callee_group'] == 'sales':
+                        sales_users.append(call['callee'])
+                    for username in sales_users:
+                        ws = udp_clients.get(username)
+                        if ws and ws.state == State.OPEN:
+                            try:
+                                await ws.send(json.dumps({
+                                    'event': 'transcription',
+                                    'call_id': call_id,
+                                    'group': group,
+                                    'text': text
+                                }))
+                                logging.info(f"Sent transcription to sales client {username}: {text}")
+                            except Exception as e:
+                                logging.error(f"Failed to send transcription to {username}: {e}")
+                    queue.task_done()
+                except asyncio.TimeoutError:
+                    continue  # Move to next call if queue empty
 
 async def udp_relay(websocket):
     client_ip = websocket.remote_address[0]
     username = None
+    audio_buffer = []
     try:
         async for message in websocket:
             if isinstance(message, str):
@@ -53,24 +58,34 @@ async def udp_relay(websocket):
                     username = data['username']
                     udp_clients[username] = websocket
                     logging.info(f"Registered client {username} from {client_ip}")
+                    if username and audio_buffer:
+                        call_id = next((cid for cid, call in calls.items() if username in (call['caller'], call['callee'])), None)
+                        if call_id:
+                            peer = calls[call_id]['callee'] if username == calls[call_id]['caller'] else calls[call_id]['caller']
+                            peer_ws = udp_clients.get(peer)
+                            if peer_ws and peer_ws.state == State.OPEN:
+                                for buffered_chunk in audio_buffer:
+                                    await peer_ws.send(buffered_chunk)
+                                    logging.info(f"Relayed buffered audio to peer {peer} for call {call_id}: {len(buffered_chunk)} bytes")
+                            audio_buffer.clear()
                 elif event == 'call_accepted':
                     call_id = data['call_id']
                     calls[call_id] = {
                         'caller': data['from_user'],
                         'callee': data['to_user'],
                         'caller_group': data['caller_group'],
-                        'callee_group': data['callee_group']
+                        'callee_group': data['callee_group'],
+                        'queue': asyncio.Queue()
                     }
                 elif event == 'call_ended':
                     call_id = data.get('call_id')
                     if call_id and call_id in calls:
-                        del calls[call_id]
+                        del calls[call_id]  # Queue auto-garbage collected
                 elif event == 'logout':
                     username_to_remove = data.get('username')
                     if username_to_remove and username_to_remove in udp_clients:
                         del udp_clients[username_to_remove]
             elif isinstance(message, (bytes, bytearray)):
-                logging.info(f"Received audio from {client_ip}: {len(message)} bytes")
                 if username:
                     call_id = next((cid for cid, call in calls.items() if username in (call['caller'], call['callee'])), None)
                     if call_id:
@@ -81,13 +96,16 @@ async def udp_relay(websocket):
                             await peer_ws.send(message)
                             logging.info(f"Relayed audio to peer {peer} for call {call_id}: {len(message)} bytes")
                             group = calls[call_id]['caller_group'] if sender == 'caller' else calls[call_id]['callee_group']
-                            await audio_queue.put((call_id, group, message))
+                            await calls[call_id]['queue'].put((group, message))
                         else:
-                            logging.warning(f"No active peer WebSocket for {peer}")
+                            logging.warning(f"No active peer WebSocket for {peer}—buffering audio")
+                            audio_buffer.append(message)
                     else:
-                        logging.warning(f"No call_id found for {username} in calls: {list(calls.keys())}")
+                        logging.warning(f"No call_id found for {username} in calls: {list(calls.keys())}—buffering audio")
+                        audio_buffer.append(message)
                 else:
-                    logging.warning(f"Client {client_ip} not registered")
+                    logging.warning(f"Client {client_ip} not registered—buffering audio")
+                    audio_buffer.append(message)
             else:
                 logging.debug(f"Ignoring unexpected message from {client_ip}: {message}")
     except Exception as e:

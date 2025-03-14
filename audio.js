@@ -1,7 +1,7 @@
 const host = location.hostname || 'localhost';
 let socket, udpSocket, mediaRecorder, mediaSource, sourceBuffer;
 let audioChunks = [];
-let currentCall = { group: null, username: null, call_id: null, peer: null };
+let currentCall = { group: null, username: null, call_id: null, peer: null, language: null };
 const ringtone = new Audio('/static/ringtone.mp3');
 ringtone.loop = true;
 const ringback = new Audio('/static/ringback.mp3');
@@ -9,12 +9,16 @@ ringback.loop = true;
 let audioElement;
 
 async function initAudio() {
-    socket = new WebSocket(`wss://${host}:8001`);
-    udpSocket = new WebSocket(`wss://${host}:8002`);
+    socket = new WebSocket(`wss://${host}:8001`, [], { pingInterval: 30000 });
+    udpSocket = new WebSocket(`wss://${host}:8002`, [], { pingInterval: 30000 });
     audioElement = document.createElement('audio');
     audioElement.autoplay = true;
     document.body.appendChild(audioElement);
     resetMediaSource();
+
+    const osLanguage = navigator.language.split('-')[0];
+    const supportedLanguages = ['en', 'ja'];
+    document.getElementById('language').value = supportedLanguages.includes(osLanguage) ? osLanguage : 'en';
 
     socket.onopen = () => console.log('Connected to signaling server');
     udpSocket.onopen = () => {
@@ -23,7 +27,8 @@ async function initAudio() {
             udpSocket.send(JSON.stringify({
                 event: 'register',
                 group: currentCall.group,
-                username: currentCall.username
+                username: currentCall.username,
+                language: currentCall.language
             }));
         }
     };
@@ -34,7 +39,6 @@ async function initAudio() {
         switch (data.event) {
             case 'set_cookie':
                 document.cookie = `session_id=${data.session_id}; path=/`;
-                console.log('Session ID set');
                 break;
             case 'user_status':
                 document.getElementById('sales-list').dataset.users = data.sales.join(',');
@@ -67,13 +71,10 @@ async function initAudio() {
 
     udpSocket.onmessage = async (event) => {
         if (event.data instanceof Blob) {
-            console.log('Audio data received:', event.data.size);
             audioChunks.push(event.data);
-            console.log('Queue length:', audioChunks.length);
             if (!isProcessing) processAudioQueue();
         } else {
             const data = JSON.parse(event.data);
-            console.log('Received from UDP relay:', data);
             if (data.event === 'transcription' && currentCall.group === 'sales' && currentCall.call_id === data.call_id) {
                 const target = data.group === 'sales' ? 'sales-transcription' : 'customer-transcription';
                 const currentText = document.getElementById(target).textContent;
@@ -84,14 +85,14 @@ async function initAudio() {
     };
 
     socket.onclose = async () => {
-        console.log('Signaling WebSocket closed—reconnecting');
-        socket = new WebSocket(`wss://${host}:8001`);
+        console.warn('Signaling WebSocket closed—reconnecting');
+        socket = new WebSocket(`wss://${host}:8001`, [], { pingInterval: 30000 });
         await new Promise(resolve => socket.onopen = resolve);
         if (currentCall.username) register(currentCall.group, currentCall.username);
     };
     udpSocket.onclose = async () => {
-        console.log('UDP relay WebSocket closed—reconnecting');
-        udpSocket = new WebSocket(`wss://${host}:8002`);
+        console.warn('UDP relay WebSocket closed—reconnecting');
+        udpSocket = new WebSocket(`wss://${host}:8002`, [], { pingInterval: 30000 });
         await new Promise(resolve => udpSocket.onopen = resolve);
     };
 }
@@ -102,7 +103,6 @@ function resetMediaSource() {
     mediaSource.addEventListener('sourceopen', () => {
         sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
         sourceBuffer.mode = 'sequence';
-        console.log('MediaSource reset and SourceBuffer ready');
     });
 }
 
@@ -116,19 +116,19 @@ async function processAudioQueue() {
             const chunk = audioChunks.shift();
             try {
                 sourceBuffer.appendBuffer(await chunk.arrayBuffer());
-                console.log('Appended audio chunk:', chunk.size);
             } catch (e) {
                 console.error('AppendBuffer error:', e);
             }
         }
-        await new Promise(resolve => setTimeout(resolve, 5));
+        await new Promise(resolve => setTimeout(resolve, 1));
     }
     isProcessing = false;
 }
 
 function register(group = null, username = null) {
-    group = group || document.getElementById('group').value;
+    group = group || document.querySelector('input[name="group"]:checked').value;
     username = username || document.getElementById('username').value;
+    const language = document.getElementById('language').value;
     if (!group || !username) {
         alert('Please enter group and username');
         return;
@@ -142,11 +142,13 @@ function register(group = null, username = null) {
         udpSocket.send(JSON.stringify({
             event: 'register',
             group: group,
-            username: username
+            username: username,
+            language: language
         }));
     }
     currentCall.group = group;
     currentCall.username = username;
+    currentCall.language = language;
     document.getElementById('login').classList.add('d-none');
     document.getElementById('main').classList.remove('d-none');
     if (group === 'sales') document.getElementById('transcription').classList.remove('d-none');
@@ -277,7 +279,6 @@ async function startAudioStream() {
         mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
         mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && udpSocket.readyState === WebSocket.OPEN) {
-                console.log('Sending audio chunk:', event.data.size, event.data.type);
                 udpSocket.send(event.data);
             }
         };
@@ -285,7 +286,6 @@ async function startAudioStream() {
             audioStream.getTracks().forEach(track => track.stop());
         };
         mediaRecorder.start(100);
-        console.log('Audio stream started');
         if (currentCall.group === 'sales') document.getElementById('transcription').classList.remove('d-none');
     } catch (e) {
         console.error('Error starting audio stream:', e);
