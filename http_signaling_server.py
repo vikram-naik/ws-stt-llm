@@ -48,13 +48,12 @@ async def handle_websocket(websocket):
                 if event == 'register':
                     group = data.get('group')
                     username = data.get('username')
-                    port = data.get('port')
-                    if not all([group, username, port]):
-                        await websocket.send(json.dumps({'event': 'error', 'message': 'Missing group, username, or port'}))
+                    if not all([group, username]):
+                        await websocket.send(json.dumps({'event': 'error', 'message': 'Missing group or username'}))
                         continue
-                    users[group][username] = {'ws': websocket, 'ip': client_ip, 'port': port}
+                    users[group][username] = {'ws': websocket, 'ip': client_ip}
                     websocket_clients[username] = websocket
-                    await websocket.send(json.dumps({'event': 'set_cookie', 'session_id': f'{group}_{username}', 'ip': client_ip}))
+                    await websocket.send(json.dumps({'event': 'set_cookie', 'session_id': f'{group}_{username}'}))
                     await broadcast_user_status()
                 elif event == 'call_user':
                     call_id = data.get('call_id')
@@ -71,16 +70,14 @@ async def handle_websocket(websocket):
                             'callee_ws': users[to_group][to_user]['ws'],
                             'caller_ip': users[from_group][from_user]['ip'],
                             'callee_ip': users[to_group][to_user]['ip'],
-                            'caller_port': users[from_group][from_user]['port'],
-                            'callee_port': users[to_group][to_user]['port'],
                             'caller_group': from_group,
-                            'callee_group': to_group
+                            'callee_group': to_group,
+                            'from_user': from_user,
+                            'to_user': to_user
                         }
                         await users[to_group][to_user]['ws'].send(json.dumps({
                             'event': 'incoming_call',
                             'call_id': call_id,
-                            'peer_ip': calls[call_id]['caller_ip'],
-                            'peer_port': calls[call_id]['caller_port'],
                             'from_user': from_user
                         }))
                     else:
@@ -91,15 +88,11 @@ async def handle_websocket(websocket):
                         await websocket.send(json.dumps({'event': 'error', 'message': 'Missing call_id'}))
                         continue
                     if call_id in calls:
-                        await calls[call_id]['caller_ws'].send(json.dumps({
-                            'event': 'call_accepted',
-                            'peer_ip': calls[call_id]['callee_ip'],
-                            'peer_port': calls[call_id]['callee_port']
-                        }))
+                        await calls[call_id]['caller_ws'].send(json.dumps({'event': 'call_accepted'}))
                         await notify_udp_relay('call_accepted', {
                             'call_id': call_id,
-                            'caller_ip': calls[call_id]['caller_ip'],
-                            'callee_ip': calls[call_id]['callee_ip'],
+                            'from_user': calls[call_id]['from_user'],
+                            'to_user': calls[call_id]['to_user'],
                             'caller_group': calls[call_id]['caller_group'],
                             'callee_group': calls[call_id]['callee_group']
                         })

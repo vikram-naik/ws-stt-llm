@@ -1,7 +1,7 @@
 const host = location.hostname || 'localhost';
 let socket, udpSocket, mediaRecorder, mediaSource, sourceBuffer;
 let audioChunks = [];
-let currentCall = { group: null, username: null, call_id: null, peer: null, ip: null, port: null };
+let currentCall = { group: null, username: null, call_id: null, peer: null };
 const ringtone = new Audio('/static/ringtone.mp3');
 ringtone.loop = true;
 const ringback = new Audio('/static/ringback.mp3');
@@ -17,7 +17,16 @@ async function initAudio() {
     resetMediaSource();
 
     socket.onopen = () => console.log('Connected to signaling server');
-    udpSocket.onopen = () => console.log('UDP relay WebSocket opened');
+    udpSocket.onopen = () => {
+        console.log('UDP relay WebSocket opened');
+        if (currentCall.group && currentCall.username) {
+            udpSocket.send(JSON.stringify({
+                event: 'register',
+                group: currentCall.group,
+                username: currentCall.username
+            }));
+        }
+    };
 
     socket.onmessage = async (event) => {
         const data = JSON.parse(event.data);
@@ -25,8 +34,7 @@ async function initAudio() {
         switch (data.event) {
             case 'set_cookie':
                 document.cookie = `session_id=${data.session_id}; path=/`;
-                currentCall.ip = data.ip;
-                console.log('Local IP assigned:', currentCall.ip);
+                console.log('Session ID set');
                 break;
             case 'user_status':
                 document.getElementById('sales-list').dataset.users = data.sales.join(',');
@@ -35,14 +43,14 @@ async function initAudio() {
                 updateUserList('customers-list', data.customers);
                 break;
             case 'incoming_call':
-                currentCall.peer = { ip: data.peer_ip, port: data.peer_port, user: data.from_user };
+                currentCall.peer = { user: data.from_user };
                 currentCall.call_id = data.call_id;
                 document.getElementById('caller').textContent = data.from_user;
                 ringtone.play().catch(e => console.error('Ringtone error:', e));
                 document.getElementById('incoming-call').classList.remove('d-none');
                 break;
             case 'call_accepted':
-                currentCall.peer = { ip: data.peer_ip, port: data.peer_port };
+                currentCall.peer = { user: data.from_user };
                 ringback.pause();
                 ringback.currentTime = 0;
                 startAudioStream();
@@ -79,7 +87,7 @@ async function initAudio() {
         console.log('Signaling WebSocket closed—reconnecting');
         socket = new WebSocket(`wss://${host}:8001`);
         await new Promise(resolve => socket.onopen = resolve);
-        if (currentCall.username) register(currentCall.group, currentCall.username, currentCall.port);
+        if (currentCall.username) register(currentCall.group, currentCall.username);
     };
     udpSocket.onclose = async () => {
         console.log('UDP relay WebSocket closed—reconnecting');
@@ -118,10 +126,9 @@ async function processAudioQueue() {
     isProcessing = false;
 }
 
-function register(group = null, username = null, port = null) {
+function register(group = null, username = null) {
     group = group || document.getElementById('group').value;
     username = username || document.getElementById('username').value;
-    port = port || (9000 + Math.floor(Math.random() * 1000));
     if (!group || !username) {
         alert('Please enter group and username');
         return;
@@ -129,12 +136,17 @@ function register(group = null, username = null, port = null) {
     socket.send(JSON.stringify({
         event: 'register',
         group: group,
-        username: username,
-        port: port
+        username: username
     }));
+    if (udpSocket.readyState === WebSocket.OPEN) {
+        udpSocket.send(JSON.stringify({
+            event: 'register',
+            group: group,
+            username: username
+        }));
+    }
     currentCall.group = group;
     currentCall.username = username;
-    currentCall.port = port;
     document.getElementById('login').classList.add('d-none');
     document.getElementById('main').classList.remove('d-none');
     if (group === 'sales') document.getElementById('transcription').classList.remove('d-none');
@@ -251,7 +263,7 @@ function showLogoutButton() {
         logoutBtn.className = 'btn btn-danger mt-3';
         logoutBtn.textContent = 'Logout';
         logoutBtn.onclick = () => {
-            socket.send(JSON.stringify({ event: 'logout' }));
+            socket.send(JSON.stringify({ event: 'logout', username: currentCall.username }));
             document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
             window.location.reload();
         };

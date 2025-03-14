@@ -1,3 +1,2 @@
 websockets 
 aiohttp
-speech_recognition
