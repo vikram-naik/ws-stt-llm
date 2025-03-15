@@ -1,3 +1,11 @@
 websockets 
 aiohttp
 vosk
+soundfile
+numpy
+librosa
+opuslib
+pydub
+PyOgg
+audioread
+webm

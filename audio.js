@@ -1,20 +1,29 @@
 const host = location.hostname || 'localhost';
-let socket, udpSocket, mediaRecorder, mediaSource, sourceBuffer;
+let socket, udpSocket, transcribeSocket, recorder, audioElement, audioContext, sourceNode, processorNode;
 let audioChunks = [];
-let currentCall = { group: null, username: null, call_id: null, peer: null, language: null };
+let currentCall = { group: null, username: null, call_id: null, peer: null, language: null, transcripts: { sales: [], customers: [] } };
 const ringtone = new Audio('/static/ringtone.mp3');
 ringtone.loop = true;
 const ringback = new Audio('/static/ringback.mp3');
 ringback.loop = true;
-let audioElement;
+
+let mediaSource, sourceBuffer;
 
 async function initAudio() {
     socket = new WebSocket(`wss://${host}:8001`, [], { pingInterval: 30000 });
     udpSocket = new WebSocket(`wss://${host}:8002`, [], { pingInterval: 30000 });
+    transcribeSocket = new WebSocket(`wss://${host}:8003`, [], { pingInterval: 30000 });
     audioElement = document.createElement('audio');
     audioElement.autoplay = true;
     document.body.appendChild(audioElement);
-    resetMediaSource();
+    audioContext = new AudioContext({ sampleRate: 16000 });
+
+    mediaSource = new MediaSource();
+    audioElement.src = URL.createObjectURL(mediaSource);
+    await new Promise(resolve => mediaSource.addEventListener('sourceopen', resolve, { once: true }));
+    sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
+    sourceBuffer.mode = 'sequence';
+    console.log('MediaSource initialized');
 
     const osLanguage = navigator.language.split('-')[0];
     const supportedLanguages = ['en', 'ja'];
@@ -25,6 +34,17 @@ async function initAudio() {
         console.log('UDP relay WebSocket opened');
         if (currentCall.group && currentCall.username) {
             udpSocket.send(JSON.stringify({
+                event: 'register',
+                group: currentCall.group,
+                username: currentCall.username,
+                language: currentCall.language
+            }));
+        }
+    };
+    transcribeSocket.onopen = () => {
+        console.log('Transcription WebSocket opened');
+        if (currentCall.group && currentCall.username) {
+            transcribeSocket.send(JSON.stringify({
                 event: 'register',
                 group: currentCall.group,
                 username: currentCall.username,
@@ -60,7 +80,7 @@ async function initAudio() {
                 startAudioStream();
                 break;
             case 'call_ended':
-                endCall();
+                await endCall();
                 break;
             case 'error':
                 console.error('Server error:', data.message);
@@ -73,13 +93,32 @@ async function initAudio() {
         if (event.data instanceof Blob) {
             audioChunks.push(event.data);
             if (!isProcessing) processAudioQueue();
-        } else {
-            const data = JSON.parse(event.data);
-            if (data.event === 'transcription' && currentCall.group === 'sales' && currentCall.call_id === data.call_id) {
-                const target = data.group === 'sales' ? 'sales-transcription' : 'customer-transcription';
-                const currentText = document.getElementById(target).textContent;
-                document.getElementById(target).textContent = `${currentText}\n${data.text}`.trim();
+        }
+    };
+
+    transcribeSocket.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+        if (currentCall.group === 'sales' && currentCall.call_id === data.call_id) {
+            if (data.event === 'transcription') {
+                const targetPartial = data.group === 'sales' ? 'sales-partial' : 'customer-partial';
+                const targetFinals = data.group === 'sales' ? 'sales-finals' : 'customer-finals';
+                if (!data.is_final) {
+                    document.getElementById(targetPartial).value = data.text; // Update textbox
+                } else {
+                    document.getElementById(targetPartial).value = ''; // Clear textbox
+                    const p = document.createElement('p');
+                    p.textContent = data.text;
+                    document.getElementById(targetFinals).appendChild(p); // Append as paragraph
+                    document.getElementById(targetFinals).scrollTop = document.getElementById(targetFinals).scrollHeight; // Auto-scroll
+                    currentCall.transcripts[data.group === 'sales' ? 'sales' : 'customers'].push(data.text);
+                }
                 document.getElementById('transcription').classList.remove('d-none');
+            } else if (data.event === 'insight') {
+                const insightDiv = document.getElementById('insights');
+                const p = document.createElement('p');
+                p.textContent = data.text;
+                insightDiv.appendChild(p);
+                insightDiv.scrollTop = insightDiv.scrollHeight;
             }
         }
     };
@@ -95,32 +134,34 @@ async function initAudio() {
         udpSocket = new WebSocket(`wss://${host}:8002`, [], { pingInterval: 30000 });
         await new Promise(resolve => udpSocket.onopen = resolve);
     };
-}
-
-function resetMediaSource() {
-    mediaSource = new MediaSource();
-    audioElement.src = URL.createObjectURL(mediaSource);
-    mediaSource.addEventListener('sourceopen', () => {
-        sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
-        sourceBuffer.mode = 'sequence';
-    });
+    transcribeSocket.onclose = async () => {
+        console.warn('Transcription WebSocket closed—reconnecting');
+        transcribeSocket = new WebSocket(`wss://${host}:8003`, [], { pingInterval: 30000 });
+        await new Promise(resolve => transcribeSocket.onopen = resolve);
+    };
 }
 
 let isProcessing = false;
 
 async function processAudioQueue() {
-    if (isProcessing) return;
+    if (isProcessing || !sourceBuffer || mediaSource.readyState !== 'open') {
+        console.log('Skipping processAudioQueue: not ready');
+        return;
+    }
     isProcessing = true;
-    while (mediaSource.readyState === 'open' && audioChunks.length > 0) {
-        if (!sourceBuffer.updating) {
-            const chunk = audioChunks.shift();
-            try {
-                sourceBuffer.appendBuffer(await chunk.arrayBuffer());
-            } catch (e) {
-                console.error('AppendBuffer error:', e);
-            }
+    while (audioChunks.length > 0) {
+        if (sourceBuffer.updating) {
+            await new Promise(resolve => sourceBuffer.addEventListener('updateend', resolve, { once: true }));
         }
-        await new Promise(resolve => setTimeout(resolve, 1));
+        const chunk = audioChunks.shift();
+        const arrayBuffer = await chunk.arrayBuffer();
+        try {
+            sourceBuffer.appendBuffer(arrayBuffer);
+            console.log('Appended WebM Opus chunk:', arrayBuffer.byteLength);
+        } catch (e) {
+            console.error('AppendBuffer error:', e);
+        }
+        await new Promise(resolve => setTimeout(resolve, 20));
     }
     isProcessing = false;
 }
@@ -140,6 +181,14 @@ function register(group = null, username = null) {
     }));
     if (udpSocket.readyState === WebSocket.OPEN) {
         udpSocket.send(JSON.stringify({
+            event: 'register',
+            group: group,
+            username: username,
+            language: language
+        }));
+    }
+    if (transcribeSocket.readyState === WebSocket.OPEN) {
+        transcribeSocket.send(JSON.stringify({
             event: 'register',
             group: group,
             username: username,
@@ -166,6 +215,13 @@ async function callUser(to_user) {
         to_user: to_user,
         call_id: currentCall.call_id
     }));
+    // Reset transcription UI for new call
+    document.getElementById('sales-finals').innerHTML = '';
+    document.getElementById('customer-finals').innerHTML = '';
+    document.getElementById('sales-partial').value = '';
+    document.getElementById('customer-partial').value = '';
+    document.getElementById('insights').innerHTML = '';
+    document.getElementById('transcription').classList.add('d-none');
     ringback.play().catch(e => console.error('Ringback error:', e));
     showCallControls();
 }
@@ -181,11 +237,18 @@ async function acceptCall() {
         from_user: currentCall.peer.user,
         to_user: currentCall.username
     }));
+    // Reset transcription UI for new call
+    document.getElementById('sales-finals').innerHTML = '';
+    document.getElementById('customer-finals').innerHTML = '';
+    document.getElementById('sales-partial').value = '';
+    document.getElementById('customer-partial').value = '';
+    document.getElementById('insights').innerHTML = '';
+    document.getElementById('transcription').classList.add('d-none');
     showCallControls();
     startAudioStream();
 }
 
-function rejectCall() {
+async function rejectCall() {
     ringtone.pause();
     ringtone.currentTime = 0;
     document.getElementById('incoming-call').classList.add('d-none');
@@ -195,10 +258,10 @@ function rejectCall() {
         from_user: currentCall.peer.user,
         to_user: currentCall.username
     }));
-    endCall();
+    await endCall();
 }
 
-function hangUp() {
+async function hangUp() {
     ringback.pause();
     ringback.currentTime = 0;
     if (currentCall.call_id) {
@@ -206,25 +269,32 @@ function hangUp() {
             event: 'hang_up',
             call_id: currentCall.call_id
         }));
-        endCall();
+        await endCall();
     }
 }
 
-function endCall() {
+async function endCall() {
     console.log('Ending call');
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+    if (recorder && recorder.state !== 'inactive') {
+        recorder.stop();
     }
-    mediaRecorder = null;
+    if (sourceNode) sourceNode.disconnect();
+    if (processorNode) processorNode.disconnect();
+    recorder = null;
+    sourceNode = null;
+    processorNode = null;
     audioChunks = [];
-    resetMediaSource();
-    document.getElementById('call-controls').classList.add('d-none');
-    if (currentCall.group === 'sales') {
-        document.getElementById('sales-transcription').textContent = '';
-        document.getElementById('customer-transcription').textContent = '';
-        document.getElementById('transcription').classList.add('d-none');
+    if (mediaSource.readyState === 'open') {
+        mediaSource.endOfStream();
     }
+    mediaSource = new MediaSource();
+    audioElement.src = URL.createObjectURL(mediaSource);
+    await new Promise(resolve => mediaSource.addEventListener('sourceopen', resolve, { once: true }));
+    sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
+    sourceBuffer.mode = 'sequence';
+    console.log('MediaSource reset');
+    document.getElementById('call-controls').classList.add('d-none');
+    // Keep transcription UI visible until new call
     currentCall.call_id = null;
     currentCall.peer = null;
     updateUserList('sales-list', document.getElementById('sales-list').dataset.users?.split(',') || []);
@@ -274,23 +344,46 @@ function showLogoutButton() {
 }
 
 async function startAudioStream() {
+    let stream;
     try {
-        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
-        mediaRecorder.ondataavailable = (event) => {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('Microphone access granted, stream:', stream);
+
+        recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+        recorder.ondataavailable = (event) => {
             if (event.data.size > 0 && udpSocket.readyState === WebSocket.OPEN) {
                 udpSocket.send(event.data);
+                console.log('Sent WebM Opus packet to relay:', event.data.size);
             }
         };
-        mediaRecorder.onstop = () => {
-            audioStream.getTracks().forEach(track => track.stop());
+        recorder.onstop = () => {
+            stream.getTracks().forEach(track => track.stop());
         };
-        mediaRecorder.start(100);
+        recorder.start(20);
+
+        sourceNode = audioContext.createMediaStreamSource(stream);
+        processorNode = audioContext.createScriptProcessor(1024, 1, 1);
+        processorNode.onaudioprocess = (event) => {
+            const floatData = event.inputBuffer.getChannelData(0);
+            const int16Data = new Int16Array(floatData.length);
+            for (let i = 0; i < floatData.length; i++) {
+                int16Data[i] = Math.max(-32768, Math.min(32767, floatData[i] * 32768));
+            }
+            const pcmBlob = new Blob([int16Data.buffer], { type: 'audio/pcm' });
+            if (transcribeSocket.readyState === WebSocket.OPEN) {
+                transcribeSocket.send(pcmBlob);
+                console.log('Sent PCM packet for transcription:', pcmBlob.size);
+            }
+        };
+        sourceNode.connect(processorNode);
+        processorNode.connect(audioContext.destination);
+
+        console.log('MediaRecorder and PCM processing started successfully');
         if (currentCall.group === 'sales') document.getElementById('transcription').classList.remove('d-none');
     } catch (e) {
-        console.error('Error starting audio stream:', e);
+        console.error('Error starting audio stream:', e.name, e.message);
         alert('Failed to access microphone. Please allow permissions and try again.');
-        endCall();
+        await endCall();
     }
 }
 

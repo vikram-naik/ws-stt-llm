@@ -7,18 +7,19 @@ from aiohttp import web
 import os
 from websockets import State
 
-logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
 
 users = {'sales': {}, 'customers': {}}
 calls = {}
 websocket_clients = {}
 udp_relay_socket = None
+transcribe_socket = None
 
 async def broadcast_user_status():
     sales = list(users['sales'].keys())
     customers = list(users['customers'].keys())
     status = json.dumps({'event': 'user_status', 'sales': sales, 'customers': customers})
-    logging.info(f"Broadcasting user status: {status}")
+    logging.debug(f"Broadcasting user status: {status}")
     for username, ws in list(websocket_clients.items()):
         if ws.state == State.OPEN:
             try:
@@ -27,15 +28,27 @@ async def broadcast_user_status():
                 logging.error(f"Error broadcasting to {username} ({ws.remote_address[0]}): {e}")
                 del websocket_clients[username]
 
-async def notify_udp_relay(event, data):
-    global udp_relay_socket
-    if udp_relay_socket and udp_relay_socket.state == State.OPEN:
+async def notify_service(socket, service_name, event, data):
+    if socket and socket.state == State.OPEN:
         try:
-            await udp_relay_socket.send(json.dumps({'event': event, **data}))
-            logging.info(f"Notified UDP relay: {event} - {data}")
+            await socket.send(json.dumps({'event': event, **data}))
+            logging.debug(f"Notified {service_name}: {event} - {data}")
         except Exception as e:
-            logging.error(f"Error notifying UDP relay: {e}")
-            udp_relay_socket = None
+            logging.error(f"Error notifying {service_name}: {e}")
+            return False
+    else:
+        logging.warning(f"{service_name} socket not open or connected")
+        return False
+    return True
+
+async def notify_both_services(event, data):
+    global udp_relay_socket, transcribe_socket
+    udp_success = await notify_service(udp_relay_socket, "UDP relay", event, data)
+    transcribe_success = await notify_service(transcribe_socket, "transcription server", event, data)
+    if not udp_success:
+        udp_relay_socket = None
+    if not transcribe_success:
+        transcribe_socket = None
 
 async def handle_websocket(websocket):
     client_ip = websocket.remote_address[0]
@@ -44,7 +57,7 @@ async def handle_websocket(websocket):
             if isinstance(message, str):
                 data = json.loads(message)
                 event = data.get('event')
-                logging.info(f"Received from {client_ip}: {data}")
+                logging.debug(f"Received from {client_ip}: {data}")
                 if event == 'register':
                     group = data.get('group')
                     username = data.get('username')
@@ -89,12 +102,13 @@ async def handle_websocket(websocket):
                         continue
                     if call_id in calls:
                         await calls[call_id]['caller_ws'].send(json.dumps({'event': 'call_accepted'}))
-                        await notify_udp_relay('call_accepted', {
+                        await notify_both_services('call_accepted', {
                             'call_id': call_id,
                             'from_user': calls[call_id]['from_user'],
                             'to_user': calls[call_id]['to_user'],
                             'caller_group': calls[call_id]['caller_group'],
-                            'callee_group': calls[call_id]['callee_group']
+                            'callee_group': calls[call_id]['callee_group'],
+                            'language': data.get('language', 'en')  # Pass language for transcription
                         })
                     else:
                         await websocket.send(json.dumps({'event': 'error', 'message': 'Call not found'}))
@@ -110,7 +124,7 @@ async def handle_websocket(websocket):
                         for ws in [caller_ws, callee_ws]:
                             if ws and ws.state == State.OPEN:
                                 await ws.send(json.dumps({'event': 'call_ended'}))
-                        await notify_udp_relay('call_ended', {'call_id': call_id})
+                        await notify_both_services('call_ended', {'call_id': call_id})
                 elif event == 'logout':
                     for group in users:
                         if websocket in [u['ws'] for u in users[group].values()]:
@@ -119,7 +133,7 @@ async def handle_websocket(websocket):
                             if username in websocket_clients:
                                 del websocket_clients[username]
                             await broadcast_user_status()
-                            await notify_udp_relay('logout', {'ip': client_ip})
+                            await notify_both_services('logout', {'ip': client_ip})
                             break
             else:
                 logging.debug(f"Ignoring non-JSON message from {client_ip}")
@@ -132,15 +146,15 @@ async def handle_websocket(websocket):
                 if username in websocket_clients:
                     del websocket_clients[username]
                 await broadcast_user_status()
-                await notify_udp_relay('logout', {'ip': client_ip})
+                await notify_both_services('logout', {'ip': client_ip})
                 break
         for call_id in list(calls.keys()):
             if websocket in [calls[call_id]['caller_ws'], calls[call_id]['callee_ws']]:
                 del calls[call_id]
-                await notify_udp_relay('call_ended', {'call_id': call_id})
+                await notify_both_services('call_ended', {'call_id': call_id})
 
 async def serve_index(request):
-    logging.info(f"HTTP request from {request.remote} for /")
+    logging.debug(f"HTTP request from {request.remote} for /")
     if not os.path.exists('index.html'):
         logging.error("index.html not found in current directory")
         return web.Response(status=404, text="Not Found")
@@ -179,17 +193,23 @@ async def main():
 
     try:
         ws_server = await websockets.serve(handle_websocket, '0.0.0.0', 8001, ssl=ssl_context_server)
-        logging.info("WebSocket server started on wss://0.0.0.0:8001")
+        logging.info("Signaling WebSocket server started on wss://0.0.0.0:8001")
     except Exception as e:
-        logging.error(f"Failed to start WebSocket server on 8001: {e}")
+        logging.error(f"Failed to start signaling WebSocket server on 8001: {e}")
         return
 
-    global udp_relay_socket
+    global udp_relay_socket, transcribe_socket
     try:
         udp_relay_socket = await websockets.connect('wss://localhost:8002', ssl=ssl_context_client)
         logging.info("Connected to UDP relay server at wss://localhost:8002")
     except Exception as e:
         logging.error(f"Failed to connect to UDP relay server: {e}")
+
+    try:
+        transcribe_socket = await websockets.connect('wss://localhost:8003', ssl=ssl_context_client)
+        logging.info("Connected to transcription server at wss://localhost:8003")
+    except Exception as e:
+        logging.error(f"Failed to connect to transcription server: {e}")
 
     await asyncio.Future()
 
