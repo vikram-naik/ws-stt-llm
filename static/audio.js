@@ -1,5 +1,5 @@
 const host = location.hostname || 'localhost';
-let socket, udpSocket, transcribeSocket, recorder, audioElement, audioContext, sourceNode, processorNode;
+let socket, udpSocket, transcribeSocket, recorder, audioElement, audioContext;
 let audioChunks = [];
 let currentCall = { group: null, username: null, call_id: null, peer: null, language: null, transcripts: { sales: [], customers: [] } };
 const ringtone = new Audio('/static/ringtone.mp3');
@@ -7,7 +7,9 @@ ringtone.loop = true;
 const ringback = new Audio('/static/ringback.mp3');
 ringback.loop = true;
 
-let mediaSource, sourceBuffer;
+const DEBUG = false;
+
+let mediaSource, sourceBuffer, chunkQueue = [], isProcessing = false;
 
 async function initAudio() {
     socket = new WebSocket(`wss://${host}:8001`, [], { pingInterval: 30000 });
@@ -23,15 +25,15 @@ async function initAudio() {
     await new Promise(resolve => mediaSource.addEventListener('sourceopen', resolve, { once: true }));
     sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
     sourceBuffer.mode = 'sequence';
-    console.log('MediaSource initialized');
+    if (DEBUG) console.log('Main thread: SourceBuffer ready');
 
     const osLanguage = navigator.language.split('-')[0];
     const supportedLanguages = ['en', 'ja'];
     document.getElementById('language').value = supportedLanguages.includes(osLanguage) ? osLanguage : 'en';
 
-    socket.onopen = () => console.log('Connected to signaling server');
+    socket.onopen = () => { if (DEBUG) console.log('Connected to signaling server'); };
     udpSocket.onopen = () => {
-        console.log('UDP relay WebSocket opened');
+        if (DEBUG) console.log('UDP relay WebSocket opened');
         if (currentCall.group && currentCall.username) {
             udpSocket.send(JSON.stringify({
                 event: 'register',
@@ -42,7 +44,7 @@ async function initAudio() {
         }
     };
     transcribeSocket.onopen = () => {
-        console.log('Transcription WebSocket opened');
+        if (DEBUG) console.log('Transcription WebSocket opened');
         if (currentCall.group && currentCall.username) {
             transcribeSocket.send(JSON.stringify({
                 event: 'register',
@@ -55,7 +57,7 @@ async function initAudio() {
 
     socket.onmessage = async (event) => {
         const data = JSON.parse(event.data);
-        console.log('Received from signaling:', data);
+        if (DEBUG) console.log('Received from signaling:', data);
         switch (data.event) {
             case 'set_cookie':
                 document.cookie = `session_id=${data.session_id}; path=/`;
@@ -91,8 +93,10 @@ async function initAudio() {
 
     udpSocket.onmessage = async (event) => {
         if (event.data instanceof Blob) {
-            audioChunks.push(event.data);
-            if (!isProcessing) processAudioQueue();
+            const arrayBuffer = await event.data.arrayBuffer();
+            chunkQueue.push(arrayBuffer);
+            if (DEBUG) console.log('Queued WebM Opus chunk:', arrayBuffer.byteLength);
+            processQueue();
         }
     };
 
@@ -100,16 +104,17 @@ async function initAudio() {
         const data = JSON.parse(event.data);
         if (currentCall.group === 'sales' && currentCall.call_id === data.call_id) {
             if (data.event === 'transcription') {
+                console.log('Transcription received:', data);
                 const targetPartial = data.group === 'sales' ? 'sales-partial' : 'customer-partial';
                 const targetFinals = data.group === 'sales' ? 'sales-finals' : 'customer-finals';
                 if (!data.is_final) {
-                    document.getElementById(targetPartial).value = data.text; // Update textbox
+                    document.getElementById(targetPartial).value = data.text;
                 } else {
-                    document.getElementById(targetPartial).value = ''; // Clear textbox
+                    document.getElementById(targetPartial).value = '';
                     const p = document.createElement('p');
                     p.textContent = data.text;
-                    document.getElementById(targetFinals).appendChild(p); // Append as paragraph
-                    document.getElementById(targetFinals).scrollTop = document.getElementById(targetFinals).scrollHeight; // Auto-scroll
+                    document.getElementById(targetFinals).appendChild(p);
+                    document.getElementById(targetFinals).scrollTop = document.getElementById(targetFinals).scrollHeight;
                     currentCall.transcripts[data.group === 'sales' ? 'sales' : 'customers'].push(data.text);
                 }
                 document.getElementById('transcription').classList.remove('d-none');
@@ -141,29 +146,32 @@ async function initAudio() {
     };
 }
 
-let isProcessing = false;
-
-async function processAudioQueue() {
+function processQueue() {
     if (isProcessing || !sourceBuffer || mediaSource.readyState !== 'open') {
-        console.log('Skipping processAudioQueue: not ready');
+        if (DEBUG) console.log('Queue waiting: processing or not ready');
         return;
     }
     isProcessing = true;
-    while (audioChunks.length > 0) {
-        if (sourceBuffer.updating) {
-            await new Promise(resolve => sourceBuffer.addEventListener('updateend', resolve, { once: true }));
+    const appendNext = () => {
+        if (chunkQueue.length === 0) {
+            isProcessing = false;
+            return;
         }
-        const chunk = audioChunks.shift();
-        const arrayBuffer = await chunk.arrayBuffer();
+        if (sourceBuffer.updating) {
+            sourceBuffer.addEventListener('updateend', appendNext, { once: true });
+            return;
+        }
+        const arrayBuffer = chunkQueue.shift();
         try {
             sourceBuffer.appendBuffer(arrayBuffer);
-            console.log('Appended WebM Opus chunk:', arrayBuffer.byteLength);
+            if (DEBUG) console.log('Appended WebM Opus chunk:', arrayBuffer.byteLength);
+            appendNext();
         } catch (e) {
-            console.error('AppendBuffer error:', e);
+            console.error('Append error:', e.message);
+            isProcessing = false;
         }
-        await new Promise(resolve => setTimeout(resolve, 20));
-    }
-    isProcessing = false;
+    };
+    appendNext();
 }
 
 function register(group = null, username = null) {
@@ -215,7 +223,6 @@ async function callUser(to_user) {
         to_user: to_user,
         call_id: currentCall.call_id
     }));
-    // Reset transcription UI for new call
     document.getElementById('sales-finals').innerHTML = '';
     document.getElementById('customer-finals').innerHTML = '';
     document.getElementById('sales-partial').value = '';
@@ -237,7 +244,6 @@ async function acceptCall() {
         from_user: currentCall.peer.user,
         to_user: currentCall.username
     }));
-    // Reset transcription UI for new call
     document.getElementById('sales-finals').innerHTML = '';
     document.getElementById('customer-finals').innerHTML = '';
     document.getElementById('sales-partial').value = '';
@@ -274,31 +280,38 @@ async function hangUp() {
 }
 
 async function endCall() {
-    console.log('Ending call');
+    if (DEBUG) console.log('Ending call');
     if (recorder && recorder.state !== 'inactive') {
         recorder.stop();
     }
-    if (sourceNode) sourceNode.disconnect();
-    if (processorNode) processorNode.disconnect();
+    if (audioContext.state !== 'closed') {
+        await audioContext.close();
+    }
     recorder = null;
-    sourceNode = null;
-    processorNode = null;
-    audioChunks = [];
+    audioContext = new AudioContext({ sampleRate: 16000 });
     if (mediaSource.readyState === 'open') {
         mediaSource.endOfStream();
+    }
+    if (transcribeSocket.readyState === WebSocket.OPEN && currentCall.call_id) {
+        transcribeSocket.send(JSON.stringify({
+            event: 'call_ended',
+            call_id: currentCall.call_id
+        }));
+        if (DEBUG) console.log('Sent call_ended to transcription server');
     }
     mediaSource = new MediaSource();
     audioElement.src = URL.createObjectURL(mediaSource);
     await new Promise(resolve => mediaSource.addEventListener('sourceopen', resolve, { once: true }));
     sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
     sourceBuffer.mode = 'sequence';
-    console.log('MediaSource reset');
+    chunkQueue = [];
+    isProcessing = false;
     document.getElementById('call-controls').classList.add('d-none');
-    // Keep transcription UI visible until new call
     currentCall.call_id = null;
     currentCall.peer = null;
     updateUserList('sales-list', document.getElementById('sales-list').dataset.users?.split(',') || []);
     updateUserList('customers-list', document.getElementById('customers-list').dataset.users?.split(',') || []);
+    if (DEBUG) console.log('MediaSource reset');
 }
 
 function showCallControls() {
@@ -346,14 +359,24 @@ function showLogoutButton() {
 async function startAudioStream() {
     let stream;
     try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                sampleRate: 16000,
+                noiseSuppression: true,
+                echoCancellation: true,
+                autoGainControl: true
+            }
+        });
         console.log('Microphone access granted, stream:', stream);
+        const sourceNode = audioContext.createMediaStreamSource(stream);
+        console.log('Input stream sample rate:', stream.getAudioTracks()[0].getSettings().sampleRate);
+        console.log('AudioContext sample rate:', audioContext.sampleRate);
 
         recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
         recorder.ondataavailable = (event) => {
             if (event.data.size > 0 && udpSocket.readyState === WebSocket.OPEN) {
                 udpSocket.send(event.data);
-                console.log('Sent WebM Opus packet to relay:', event.data.size);
+                if (DEBUG) console.log('Sent WebM Opus packet to relay:', event.data.size);
             }
         };
         recorder.onstop = () => {
@@ -361,24 +384,22 @@ async function startAudioStream() {
         };
         recorder.start(20);
 
-        sourceNode = audioContext.createMediaStreamSource(stream);
-        processorNode = audioContext.createScriptProcessor(1024, 1, 1);
-        processorNode.onaudioprocess = (event) => {
-            const floatData = event.inputBuffer.getChannelData(0);
-            const int16Data = new Int16Array(floatData.length);
-            for (let i = 0; i < floatData.length; i++) {
-                int16Data[i] = Math.max(-32768, Math.min(32767, floatData[i] * 32768));
-            }
-            const pcmBlob = new Blob([int16Data.buffer], { type: 'audio/pcm' });
+        await audioContext.audioWorklet.addModule('/static/audioWorklet.js');
+        const pcmNode = new AudioWorkletNode(audioContext, 'pcm-processor', {
+            processorOptions: { bufferSize: 1024 }
+        });
+        pcmNode.port.onmessage = (event) => {
+            const pcmBlob = new Blob([event.data], { type: 'audio/pcm' });
+            if (DEBUG) console.log('PCM chunk, first 10 samples:', event.data.slice(0, 10));
             if (transcribeSocket.readyState === WebSocket.OPEN) {
                 transcribeSocket.send(pcmBlob);
-                console.log('Sent PCM packet for transcription:', pcmBlob.size);
+                if (DEBUG) console.log('Sent PCM packet for transcription (sales only):', pcmBlob.size);
             }
         };
-        sourceNode.connect(processorNode);
-        processorNode.connect(audioContext.destination);
+        sourceNode.connect(pcmNode);
+        pcmNode.connect(audioContext.destination);
 
-        console.log('MediaRecorder and PCM processing started successfully');
+        if (DEBUG) console.log('MediaRecorder and PCM processing started successfully');
         if (currentCall.group === 'sales') document.getElementById('transcription').classList.remove('d-none');
     } catch (e) {
         console.error('Error starting audio stream:', e.name, e.message);

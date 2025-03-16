@@ -5,6 +5,7 @@ import ssl
 import websockets
 from websockets import State
 from vosk_asr import VoskASR
+from collections import defaultdict
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -15,27 +16,32 @@ asr = VoskASR()
 
 async def transcribe_audio(call_id):
     logger.info(f"Starting transcription task for {call_id}")
+    last_partials = defaultdict(str)
     while call_id in calls:
         queue = calls[call_id].get('queue')
         if queue:
-            group, pcm_data = await queue.get()
-            transcript, is_final = await asr.process_audio(call_id, pcm_data)
-            if transcript:
+            group, pcm_data, username = await queue.get()
+            if pcm_data is None:  # Signal to stop
+                break
+            logger.debug(f"Processing PCM for {call_id} (group: {group}, user: {username}): {len(pcm_data)} bytes")
+            transcript, is_final = await asr.process_audio(call_id, pcm_data, username)
+            if transcript and (is_final or transcript != last_partials[group]):
                 call = calls[call_id]
                 sales_users = [call['caller']] if call['caller_group'] == 'sales' else []
                 if call['callee_group'] == 'sales':
                     sales_users.append(call['callee'])
-                for username in sales_users:
-                    client = transcribe_clients.get(username)
+                for user in sales_users:
+                    client = transcribe_clients.get(user)
                     if client and client['ws'].state == State.OPEN:
                         await client['ws'].send(json.dumps({
                             'event': 'transcription',
                             'call_id': call_id,
-                            'group': group,  # Sender's group (sales/customers)
+                            'group': group,
                             'text': transcript,
                             'is_final': is_final
                         }))
-                        logger.info(f"Sent transcription to {username}: {transcript} (group: {group})")
+                        logger.info(f"Sent transcription to {user}: {transcript} (group: {group})")
+                last_partials[group] = transcript if not is_final else ""
             queue.task_done()
     logger.info(f"Stopped transcription for {call_id}")
 
@@ -70,15 +76,16 @@ async def transcribe(websocket):
                     call_id = data.get('call_id')
                     if call_id in calls:
                         asr.end_session(call_id)
+                        await calls[call_id]['queue'].put((None, None, None))  # Signal task to stop
                         del calls[call_id]
                         logger.info(f"Ended transcription for {call_id}")
             elif isinstance(message, (bytes, bytearray)):
                 if username:
                     call_id = next((cid for cid, call in calls.items() if username in (call['caller'], call['callee'])), None)
                     if call_id:
-                        group = transcribe_clients[username]['group']  # Use sender's registered group
-                        await calls[call_id]['queue'].put((group, message))
-                        logger.debug(f"Queued PCM for {call_id} from {username} (group: {group}): {len(message)} bytes")
+                        group = transcribe_clients[username]['group']
+                        logger.debug(f"Queuing PCM for {call_id} from {username} (group: {group}): {len(message)} bytes")
+                        await calls[call_id]['queue'].put((group, message, username))
     except Exception as e:
         logger.error(f"Transcription error: {e}", exc_info=True)
     finally:

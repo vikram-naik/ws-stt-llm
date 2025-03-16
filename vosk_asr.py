@@ -1,6 +1,5 @@
 import vosk
 import logging
-import asyncio
 from collections import defaultdict
 import json
 
@@ -23,32 +22,57 @@ class VoskASR:
             logger.error(f"Unsupported language: {language}. Supported: en, ja")
             return
         if call_id not in self.sessions:
-            self.sessions[call_id] = vosk.KaldiRecognizer(self.models[language], self.target_rate)
+            self.sessions[call_id] = {
+                'recognizer': vosk.KaldiRecognizer(self.models[language], self.target_rate, '{"max_silence": 0.1, "min_speech_duration": 0.2, "silence_probability_threshold": 0.99}'),
+                'language': language
+            }
             logger.info(f"Started Vosk session for call {call_id} with language {language}")
 
-    async def process_audio(self, call_id, audio_chunk):
-        if call_id not in self.sessions:
-            logger.warning(f"No Vosk session for {call_id}")
+    async def process_audio(self, call_id, audio_chunk, username=None):
+        try:
+            if call_id not in self.sessions:
+                logger.warning(f"No session for {call_id}")
+                return "", False
+            self.buffers[call_id] += audio_chunk
+            logger.debug(f"Buffer len for {call_id}: [{len(self.buffers[call_id])}]")
+            if len(self.buffers[call_id]) < 32000:  # ~1s at 16kHz, 16-bit
+                return "", False
+            
+            pcm_data = self.buffers[call_id][:32000]  # Slice ~1s
+            self.buffers[call_id] = self.buffers[call_id][32000:]  # Keep remainder
+
+            username = username or "unknown"
+
+            # Vosk transcription
+            recognizer = self.sessions[call_id]['recognizer']
+            if recognizer.AcceptWaveform(pcm_data):
+                result = json.loads(recognizer.Result())
+                transcript = result.get("text", "")
+                logger.info(f"Final transcript for {call_id} ({username}): '{transcript}'")
+                return transcript, True
+            else:
+                partial = json.loads(recognizer.PartialResult())
+                transcript = partial.get("partial", "")
+                logger.info(f"Partial transcript for {call_id} ({username}): '{transcript}'")
+                return transcript, False
+        except Exception as e:
+            logger.error(f"Error processing audio for {call_id}: {e}", exc_info=True)
             return "", False
-        self.buffers[call_id] += audio_chunk
-        if len(self.buffers[call_id]) < 4000:  # ~0.25s at 16kHz, 16-bit
-            return "", False
-        pcm_data = self.buffers[call_id][:4000]
-        self.buffers[call_id] = self.buffers[call_id][4000:]
-        recognizer = self.sessions[call_id]
-        if recognizer.AcceptWaveform(pcm_data):
-            result = json.loads(recognizer.Result())
-            transcript = result.get("text", "")
-            logger.info(f"Final transcript for {call_id}: '{transcript}'")
-            return transcript, True
-        else:
-            partial = json.loads(recognizer.PartialResult())
-            transcript = partial.get("partial", "")
-            logger.info(f"Partial transcript for {call_id}: '{transcript}'")
-            return transcript, False
 
     def end_session(self, call_id):
         if call_id in self.sessions:
+            recognizer = self.sessions[call_id]['recognizer']
+            if self.buffers[call_id]:
+                pcm_data = self.buffers[call_id]
+                username = "unknown"
+                if recognizer.AcceptWaveform(pcm_data):
+                    result = json.loads(recognizer.Result())
+                else:
+                    result = json.loads(recognizer.FinalResult())  # Force final result
+                transcript = result.get("text", "")
+                if transcript:
+                    logger.info(f"Final transcript at end for {call_id} ({username}): '{transcript}'")
             del self.sessions[call_id]
             self.buffers.pop(call_id, None)
-            logger.info(f"Ended Vosk session for {call_id}")
+            return transcript, True if transcript else False
+        return "", False

@@ -3,3 +3,5 @@ __pycache__
 *.pem
 *.mp3
 vosk-model
+logs
+audio
