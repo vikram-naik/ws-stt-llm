@@ -29,13 +29,15 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Group</label>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="group" id="sales" value="sales" required>
-                            <label class="form-check-label" for="sales">Sales</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="group" id="customers" value="customers">
-                            <label class="form-check-label" for="customers">Customers</label>
+                        <div class="d-flex gap-3">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="group" id="sales" value="sales" required>
+                                <label class="form-check-label" for="sales">Sales</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="group" id="customers" value="customers">
+                                <label class="form-check-label" for="customers">Customers</label>
+                            </div>
                         </div>
                     </div>
                     <div class="mb-3">
@@ -72,10 +74,10 @@
         <div class="container-fluid" style="margin-top: 60px;">
             <div class="row">
                 <div class="col-2 user-list p-3">
-                    <h5>Available Users</h5>
+                    <h5 id="userListHeader">Available Users</h5>
                     <ul class="list-group" id="userList"></ul>
                 </div>
-                <div class="col-5 conversation-panel">
+                <div class="col-5 conversation-panel" id="conversationPanel">
                     <h5>Conversation</h5>
                     <div id="partial-bubble" class="chat-bubble-sales partial-bubble"></div>
                     <div id="finals"></div>

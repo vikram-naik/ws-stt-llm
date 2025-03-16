@@ -7,7 +7,7 @@ ringtone.loop = true;
 const ringback = new Audio('/static/ringback.mp3');
 ringback.loop = true;
 
-const DEBUG = false;
+const DEBUG = true;
 
 let mediaSource, sourceBuffer, chunkQueue = [], isProcessing = false;
 
@@ -56,41 +56,97 @@ async function initAudio() {
     };
 
     socket.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
-        if (DEBUG) console.log('Received from signaling:', data);
-        switch (data.event) {
-            case 'set_cookie':
-                document.cookie = `session_id=${data.session_id}; path=/`;
-                break;
-            case 'user_status':
-                document.getElementById('sales-list').dataset.users = data.sales.join(',');
-                document.getElementById('customers-list').dataset.users = data.customers.join(',');
-                updateUserList('sales-list', data.sales);
-                updateUserList('customers-list', data.customers);
-                break;
-            case 'incoming_call':
-                currentCall.peer = { user: data.from_user };
-                currentCall.call_id = data.call_id;
-                document.getElementById('caller').textContent = data.from_user;
-                ringtone.play().catch(e => console.error('Ringtone error:', e));
-                document.getElementById('incoming-call').classList.remove('d-none');
-                break;
-            case 'call_accepted':
-                currentCall.peer = { user: data.from_user };
-                ringback.pause();
-                ringback.currentTime = 0;
-                startAudioStream();
-                break;
-            case 'call_ended':
-                await endCall();
-                break;
-            case 'error':
-                console.error('Server error:', data.message);
-                alert(data.message);
-                break;
+        try {
+            const data = JSON.parse(event.data);
+            if (DEBUG) console.log('Received from signaling:', data);
+            switch (data.event) {
+                case 'set_cookie':
+                    document.cookie = `session_id=${data.session_id}; path=/`;
+                    break;
+                case 'user_status':
+                    updateUserList(data);
+                    break;
+                case 'incoming_call':
+                    currentCall.peer = { user: data.from_user };
+                    currentCall.call_id = data.call_id;
+                    ringtone.play().catch(e => console.error('Ringtone error:', e));
+                    showIncomingCall(data.from_user, data.call_id);
+                    break;
+                case 'call_accepted':
+                    currentCall.peer = { user: data.from_user };
+                    ringback.pause();
+                    ringback.currentTime = 0;
+                    startAudioStream();
+                    callAccepted();
+                    break;
+                case 'call_ended':
+                    await endCall();
+                    callEnded();
+                    break;
+                case 'error':
+                    console.error('Server error:', data.message);
+                    showError(data.message);
+                    break;
+            }
+        } catch (error) {
+            console.error('Error in socket.onmessage:', error);
+        }
+    };
+    
+    // Expose callUser and hangUp globally
+    window.callUser = async function(to_user) {
+        if (currentCall.call_id) return showError('Already in a call');
+        currentCall.call_id = `call_${Date.now()}_${currentCall.username}`;
+        currentCall.peer = { group: currentCall.group === 'sales' ? 'customers' : 'sales', user: to_user };
+        socket.send(JSON.stringify({
+            event: 'call_user',
+            from_group: currentCall.group,
+            from_user: currentCall.username,
+            to_user: to_user,
+            call_id: currentCall.call_id
+        }));
+        ringback.play().catch(e => console.error('Ringback error:', e));
+    };
+
+    window.hangUp = async function() {
+        ringback.pause();
+        ringback.currentTime = 0;
+        if (currentCall.call_id) {
+            socket.send(JSON.stringify({
+                event: 'hang_up',
+                call_id: currentCall.call_id
+            }));
+            await endCall();
         }
     };
 
+    // Expose acceptCall and rejectCall for modal
+    window.acceptCall = async function() {
+        ringtone.pause();
+        ringtone.currentTime = 0;
+        socket.send(JSON.stringify({
+            event: 'accept_call',
+            call_id: currentCall.call_id,
+            from_group: currentCall.peer.group,
+            from_user: currentCall.peer.user,
+            to_user: currentCall.username
+        }));
+        startAudioStream();
+    };
+
+    window.rejectCall = async function() {
+        ringtone.pause();
+        ringtone.currentTime = 0;
+        socket.send(JSON.stringify({
+            event: 'call_rejected',
+            from_group: currentCall.peer.group,
+            from_user: currentCall.peer.user,
+            to_user: currentCall.username
+        }));
+        await endCall();
+    };
+
+    
     udpSocket.onmessage = async (event) => {
         if (event.data instanceof Blob) {
             const arrayBuffer = await event.data.arrayBuffer();
@@ -105,25 +161,14 @@ async function initAudio() {
         if (currentCall.group === 'sales' && currentCall.call_id === data.call_id) {
             if (data.event === 'transcription') {
                 console.log('Transcription received:', data);
-                const targetPartial = data.group === 'sales' ? 'sales-partial' : 'customer-partial';
-                const targetFinals = data.group === 'sales' ? 'sales-finals' : 'customer-finals';
                 if (!data.is_final) {
-                    document.getElementById(targetPartial).value = data.text;
+                    updatePartial(data.text, data.group); // Direct call
                 } else {
-                    document.getElementById(targetPartial).value = '';
-                    const p = document.createElement('p');
-                    p.textContent = data.text;
-                    document.getElementById(targetFinals).appendChild(p);
-                    document.getElementById(targetFinals).scrollTop = document.getElementById(targetFinals).scrollHeight;
                     currentCall.transcripts[data.group === 'sales' ? 'sales' : 'customers'].push(data.text);
+                    addFinal(data.text, data.group); // Direct call
                 }
-                document.getElementById('transcription').classList.remove('d-none');
             } else if (data.event === 'insight') {
-                const insightDiv = document.getElementById('insights');
-                const p = document.createElement('p');
-                p.textContent = data.text;
-                insightDiv.appendChild(p);
-                insightDiv.scrollTop = insightDiv.scrollHeight;
+                addInsight(data.text); // Direct call
             }
         }
     };
@@ -212,72 +257,7 @@ function register(group = null, username = null) {
     showLogoutButton();
 }
 
-async function callUser(to_user) {
-    if (currentCall.call_id) return alert('Already in a call');
-    currentCall.call_id = `call_${Date.now()}_${currentCall.username}`;
-    currentCall.peer = { group: currentCall.group === 'sales' ? 'customers' : 'sales', user: to_user };
-    socket.send(JSON.stringify({
-        event: 'call_user',
-        from_group: currentCall.group,
-        from_user: currentCall.username,
-        to_user: to_user,
-        call_id: currentCall.call_id
-    }));
-    document.getElementById('sales-finals').innerHTML = '';
-    document.getElementById('customer-finals').innerHTML = '';
-    document.getElementById('sales-partial').value = '';
-    document.getElementById('customer-partial').value = '';
-    document.getElementById('insights').innerHTML = '';
-    document.getElementById('transcription').classList.add('d-none');
-    ringback.play().catch(e => console.error('Ringback error:', e));
-    showCallControls();
-}
 
-async function acceptCall() {
-    ringtone.pause();
-    ringtone.currentTime = 0;
-    document.getElementById('incoming-call').classList.add('d-none');
-    socket.send(JSON.stringify({
-        event: 'accept_call',
-        call_id: currentCall.call_id,
-        from_group: currentCall.peer.group,
-        from_user: currentCall.peer.user,
-        to_user: currentCall.username
-    }));
-    document.getElementById('sales-finals').innerHTML = '';
-    document.getElementById('customer-finals').innerHTML = '';
-    document.getElementById('sales-partial').value = '';
-    document.getElementById('customer-partial').value = '';
-    document.getElementById('insights').innerHTML = '';
-    document.getElementById('transcription').classList.add('d-none');
-    showCallControls();
-    startAudioStream();
-}
-
-async function rejectCall() {
-    ringtone.pause();
-    ringtone.currentTime = 0;
-    document.getElementById('incoming-call').classList.add('d-none');
-    socket.send(JSON.stringify({
-        event: 'call_rejected',
-        from_group: currentCall.peer.group,
-        from_user: currentCall.peer.user,
-        to_user: currentCall.username
-    }));
-    await endCall();
-}
-
-async function hangUp() {
-    ringback.pause();
-    ringback.currentTime = 0;
-    if (currentCall.call_id) {
-        socket.send(JSON.stringify({
-            event: 'hang_up',
-            call_id: currentCall.call_id
-        }));
-        await endCall();
-    }
-}
 
 async function endCall() {
     if (DEBUG) console.log('Ending call');
