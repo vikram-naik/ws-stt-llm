@@ -62,10 +62,11 @@
                     <span class="navbar-brand mb-0 h1">TakaToshi Kai (高利会)</span>
                 </div>
                 <div class="ms-auto d-flex align-items-center">
-                    <button class="btn btn-outline-primary me-2" id="userBtn" title="User">
-                        <i class="bi bi-person-circle sales-text"></i> <span class="sales-text" id="userName"></span>
-                    </button>
-                    <button class="btn btn-outline-secondary d-none" id="logoutBtn" title="Logout">
+                    <span class="me-2 d-flex align-items-center" id="userName">
+                        <i class="bi bi-person-circle me-1"></i>
+                        <span></span>
+                    </span>
+                    <button class="btn btn-outline-danger d-none" id="logoutBtn" title="Logout">
                         <i class="bi bi-box-arrow-right"></i>
                     </button>
                 </div>
@@ -103,7 +104,7 @@
                     </div>
                     <div class="modal-footer">
                         <button class="btn btn-success" id="acceptCall">Accept</button>
-                        <button class="btn btn-danger" data-bs-dismiss="modal">Reject</button>
+                        <button class="btn btn-danger" id="rejectCall" data-bs-dismiss="modal">Reject</button>
                     </div>
                 </div>
             </div>

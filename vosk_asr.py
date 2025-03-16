@@ -61,6 +61,7 @@ class VoskASR:
 
     def end_session(self, call_id):
         if call_id in self.sessions:
+            transcript = ""
             recognizer = self.sessions[call_id]['recognizer']
             if self.buffers[call_id]:
                 pcm_data = self.buffers[call_id]

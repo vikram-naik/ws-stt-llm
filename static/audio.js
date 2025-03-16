@@ -7,7 +7,7 @@ ringtone.loop = true;
 const ringback = new Audio('/static/ringback.mp3');
 ringback.loop = true;
 
-const DEBUG = true;
+const DEBUG = false;
 
 let mediaSource, sourceBuffer, chunkQueue = [], isProcessing = false;
 
@@ -80,6 +80,10 @@ async function initAudio() {
                     callAccepted();
                     break;
                 case 'call_ended':
+                    ringtone.pause();
+                    ringtone.currentTime = 0;
+                    ringback.pause();
+                    ringback.currentTime = 0;
                     await endCall();
                     callEnded();
                     break;
@@ -93,7 +97,6 @@ async function initAudio() {
         }
     };
     
-    // Expose callUser and hangUp globally
     window.callUser = async function(to_user) {
         if (currentCall.call_id) return showError('Already in a call');
         currentCall.call_id = `call_${Date.now()}_${currentCall.username}`;
@@ -106,21 +109,24 @@ async function initAudio() {
             call_id: currentCall.call_id
         }));
         ringback.play().catch(e => console.error('Ringback error:', e));
+        updateUserList({ sales: window.sales, customers: window.customers });
     };
-
+    
     window.hangUp = async function() {
         ringback.pause();
         ringback.currentTime = 0;
+        ringtone.pause();
+        ringtone.currentTime = 0;
         if (currentCall.call_id) {
             socket.send(JSON.stringify({
                 event: 'hang_up',
                 call_id: currentCall.call_id
             }));
             await endCall();
+            callEnded();
         }
     };
-
-    // Expose acceptCall and rejectCall for modal
+    
     window.acceptCall = async function() {
         ringtone.pause();
         ringtone.currentTime = 0;
@@ -132,11 +138,14 @@ async function initAudio() {
             to_user: currentCall.username
         }));
         startAudioStream();
+        callAccepted();
     };
-
+    
     window.rejectCall = async function() {
         ringtone.pause();
         ringtone.currentTime = 0;
+        ringback.pause();
+        ringback.currentTime = 0;
         socket.send(JSON.stringify({
             event: 'call_rejected',
             from_group: currentCall.peer.group,
@@ -144,9 +153,10 @@ async function initAudio() {
             to_user: currentCall.username
         }));
         await endCall();
+        callEnded();
     };
-
     
+
     udpSocket.onmessage = async (event) => {
         if (event.data instanceof Blob) {
             const arrayBuffer = await event.data.arrayBuffer();
@@ -189,6 +199,38 @@ async function initAudio() {
         transcribeSocket = new WebSocket(`wss://${host}:8003`, [], { pingInterval: 30000 });
         await new Promise(resolve => transcribeSocket.onopen = resolve);
     };
+}
+
+async function endCall() {
+    if (DEBUG) console.log('Ending call');
+    if (recorder && recorder.state !== 'inactive') {
+        recorder.stop();
+    }
+    if (audioContext.state !== 'closed') {
+        await audioContext.close();
+    }
+    recorder = null;
+    audioContext = new AudioContext({ sampleRate: 16000 });
+    if (mediaSource.readyState === 'open') {
+        mediaSource.endOfStream();
+    }
+    if (transcribeSocket.readyState === WebSocket.OPEN && currentCall.call_id) {
+        transcribeSocket.send(JSON.stringify({
+            event: 'call_ended',
+            call_id: currentCall.call_id
+        }));
+        if (DEBUG) console.log('Sent call_ended to transcription server');
+    }
+    mediaSource = new MediaSource();
+    audioElement.src = URL.createObjectURL(mediaSource);
+    await new Promise(resolve => mediaSource.addEventListener('sourceopen', resolve, { once: true }));
+    sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
+    sourceBuffer.mode = 'sequence';
+    chunkQueue = [];
+    isProcessing = false;
+    currentCall.call_id = null;
+    currentCall.peer = null;
+    // No DOM updates here—handled by ui.js
 }
 
 function processQueue() {
@@ -255,43 +297,6 @@ function register(group = null, username = null) {
     document.getElementById('mainUI').classList.remove('d-none');
     if (group === 'sales') document.getElementById('transcription').classList.remove('d-none');
     showLogoutButton();
-}
-
-
-
-async function endCall() {
-    if (DEBUG) console.log('Ending call');
-    if (recorder && recorder.state !== 'inactive') {
-        recorder.stop();
-    }
-    if (audioContext.state !== 'closed') {
-        await audioContext.close();
-    }
-    recorder = null;
-    audioContext = new AudioContext({ sampleRate: 16000 });
-    if (mediaSource.readyState === 'open') {
-        mediaSource.endOfStream();
-    }
-    if (transcribeSocket.readyState === WebSocket.OPEN && currentCall.call_id) {
-        transcribeSocket.send(JSON.stringify({
-            event: 'call_ended',
-            call_id: currentCall.call_id
-        }));
-        if (DEBUG) console.log('Sent call_ended to transcription server');
-    }
-    mediaSource = new MediaSource();
-    audioElement.src = URL.createObjectURL(mediaSource);
-    await new Promise(resolve => mediaSource.addEventListener('sourceopen', resolve, { once: true }));
-    sourceBuffer = mediaSource.addSourceBuffer('audio/webm;codecs=opus');
-    sourceBuffer.mode = 'sequence';
-    chunkQueue = [];
-    isProcessing = false;
-    document.getElementById('call-controls').classList.add('d-none');
-    currentCall.call_id = null;
-    currentCall.peer = null;
-    updateUserList('sales-list', document.getElementById('sales-list').dataset.users?.split(',') || []);
-    updateUserList('customers-list', document.getElementById('customers-list').dataset.users?.split(',') || []);
-    if (DEBUG) console.log('MediaSource reset');
 }
 
 function showCallControls() {

@@ -1,6 +1,10 @@
 // ui.js (/static/ui.js)
 console.log('ui.js loaded');
 
+// Define global user lists
+window.sales = [];
+window.customers = [];
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM fully loaded');
 
@@ -40,10 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     header.textContent = 'Sales Team';
                     document.getElementById('conversationPanel').classList.add('d-none');
                 }
-                const userBtn = document.getElementById('userBtn');
-                userBtn.classList.remove('btn-outline-primary', 'btn-outline-secondary');
-                userBtn.classList.add(group === 'sales' ? 'btn-outline-primary' : 'btn-outline-secondary');
-                document.getElementById('userName').textContent = username;
+                const userNameSpan = document.getElementById('userName').querySelector('span');
+                userNameSpan.textContent = username;
+                userNameSpan.classList.add(group === 'sales' ? 'text-primary' : 'text-secondary');
+                document.getElementById('logoutBtn').classList.remove('d-none');
                 register(group, username);
             } catch (error) {
                 console.error('Error in form submission:', error);
@@ -59,10 +63,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!logoutBtn) throw new Error('Logout button not found');
         logoutBtn.addEventListener('click', () => {
             try {
+                socket.send(JSON.stringify({ event: 'logout', username: currentCall.username }));
+                document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
                 document.getElementById('mainUI').classList.add('d-none');
                 document.getElementById('entryScreen').classList.remove('d-none');
                 document.getElementById('transcription').classList.add('d-none');
-                document.getElementById('hangupBtn').classList.add('d-none');
                 logoutBtn.classList.add('d-none');
             } catch (error) {
                 console.error('Error in logout:', error);
@@ -72,7 +77,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('Error setting up logout listener:', error);
     }
 
-    // UI updates (exposed globally)
     window.updatePartial = function(text, group) {
         try {
             const partialBubble = document.getElementById('partial-bubble');
@@ -98,26 +102,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    window.updateUserList = function({ sales, customers }) {
+    window.updateUserList = function({ sales: newSales, customers: newCustomers }) {
         try {
-            console.log('updateUserList called with:', { sales, customers, currentGroup });
+            console.log('updateUserList called with:', { newSales, newCustomers, currentGroup, callId: currentCall.call_id, peer: currentCall.peer });
+            window.sales = newSales || window.sales;
+            window.customers = newCustomers || window.customers;
             const userList = document.getElementById('userList');
             if (!userList) throw new Error('User list element not found');
             userList.innerHTML = '';
-            const usersToShow = currentGroup === 'sales' ? customers : sales;
+            const usersToShow = currentGroup === 'sales' ? window.customers : window.sales;
             if (!Array.isArray(usersToShow)) throw new Error('usersToShow is not an array');
             usersToShow.forEach(username => {
                 const li = document.createElement('li');
                 li.className = `list-group-item ${currentGroup === 'sales' ? 'customer-bg' : 'sales-bg'} d-flex align-items-center`;
+                const inCall = currentCall.call_id && (username === currentCall.peer?.user || 
+                    (currentCall.username === currentCall.peer?.user && username === currentCall.peer?.user) ||
+                    (currentCall.peer && currentCall.username !== currentCall.peer.user && username === currentCall.username));
                 li.innerHTML = `
                     <i class="bi bi-person me-2"></i>
                     <span>${username}</span>
-                    <button class="btn btn-sm ms-auto" onclick="window.callUser('${username}')">
-                        <i class="bi bi-telephone-fill"></i>
-                    </button>
+                    ${inCall ?
+                        `<button class="btn btn-danger btn-sm ms-auto hangup-btn" onclick="window.hangUp()">
+                            <i class="bi bi-telephone-x-fill"></i>
+                        </button>` :
+                        `<button class="btn btn-sm ms-auto call-btn" onclick="window.callUser('${username}')" ${currentCall.call_id ? 'disabled' : ''}>
+                            <i class="bi bi-telephone-fill"></i>
+                        </button>`}
                 `;
                 userList.appendChild(li);
             });
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (currentCall.call_id) logoutBtn.setAttribute('disabled', 'true');
+            else logoutBtn.removeAttribute('disabled');
         } catch (error) {
             console.error('Error in updateUserList:', error);
         }
@@ -133,10 +149,12 @@ document.addEventListener('DOMContentLoaded', () => {
             incomingModal.show();
             document.getElementById('acceptCall').onclick = () => {
                 window.acceptCall();
+                window.updateUserList({ sales: window.sales, customers: window.customers });
                 incomingModal.hide();
             };
             document.getElementById('rejectCall').onclick = () => {
                 window.rejectCall();
+                window.updateUserList({ sales: window.sales, customers: window.customers });
                 incomingModal.hide();
             };
         } catch (error) {
@@ -146,11 +164,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.callAccepted = function() {
         try {
-            console.log('Call accepted');
-            const hangupBtn = document.getElementById('hangupBtn');
-            if (!hangupBtn) throw new Error('Hangup button not found');
-            hangupBtn.classList.remove('d-none');
-            hangupBtn.onclick = () => window.hangUp();
+            console.log('callAccepted triggered');
+            window.updateUserList({ sales: window.sales, customers: window.customers });
             bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
         } catch (error) {
             console.error('Error in callAccepted:', error);
@@ -160,9 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.callEnded = function() {
         try {
             console.log('Call ended');
-            const hangupBtn = document.getElementById('hangupBtn');
-            if (!hangupBtn) throw new Error('Hangup button not found');
-            hangupBtn.classList.add('d-none');
+            window.updateUserList({ sales: window.sales, customers: window.customers });
             bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
         } catch (error) {
             console.error('Error in callEnded:', error);
