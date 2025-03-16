@@ -206,8 +206,8 @@ function register(group = null, username = null) {
     currentCall.group = group;
     currentCall.username = username;
     currentCall.language = language;
-    document.getElementById('login').classList.add('d-none');
-    document.getElementById('main').classList.remove('d-none');
+    document.getElementById('entryScreen').classList.add('d-none');
+    document.getElementById('mainUI').classList.remove('d-none');
     if (group === 'sales') document.getElementById('transcription').classList.remove('d-none');
     showLogoutButton();
 }
@@ -352,7 +352,7 @@ function showLogoutButton() {
             document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
             window.location.reload();
         };
-        document.getElementById('main').appendChild(logoutBtn);
+        document.getElementById('mainUI').appendChild(logoutBtn);
     }
 }
 
