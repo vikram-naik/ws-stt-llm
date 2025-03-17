@@ -87,6 +87,9 @@ async function initAudio() {
                     await endCall();
                     callEnded();
                     break;
+                case 'call_rejected':
+                    rejectCall();
+                    break;
                 case 'error':
                     console.error('Server error:', data.message);
                     showError(data.message);
@@ -132,28 +135,33 @@ async function initAudio() {
         ringtone.currentTime = 0;
         socket.send(JSON.stringify({
             event: 'accept_call',
-            call_id: currentCall.call_id,
             from_group: currentCall.peer.group,
             from_user: currentCall.peer.user,
-            to_user: currentCall.username
+            to_user: currentCall.username,
+            call_id: currentCall.call_id
         }));
         startAudioStream();
         callAccepted();
     };
     
     window.rejectCall = async function() {
-        ringtone.pause();
-        ringtone.currentTime = 0;
-        ringback.pause();
-        ringback.currentTime = 0;
-        socket.send(JSON.stringify({
-            event: 'call_rejected',
-            from_group: currentCall.peer.group,
-            from_user: currentCall.peer.user,
-            to_user: currentCall.username
-        }));
-        await endCall();
-        callEnded();
+        try{
+            ringtone.pause();
+            ringtone.currentTime = 0;
+            ringback.pause();
+            ringback.currentTime = 0;
+            socket.send(JSON.stringify({
+                event: 'call_rejected',
+                from_group: currentCall.peer.group,
+                from_user: currentCall.peer.user,
+                to_user: currentCall.username,
+                call_id: currentCall.call_id
+            }));
+            await endCall();
+            callEnded();    
+        }catch(error){
+            console.error('Error starting audio stream:', e.name, e.message);
+        }
     };
     
 
@@ -303,28 +311,6 @@ function showCallControls() {
     document.getElementById('call-controls').classList.remove('d-none');
 }
 
-function updateUserList(elementId, users) {
-    const list = document.getElementById(elementId);
-    list.innerHTML = '';
-    const isSales = currentCall.group === 'sales';
-    const targetGroup = elementId === 'sales-list' ? 'sales' : 'customers';
-    const inCall = !!currentCall.call_id;
-
-    users.forEach(user => {
-        const li = document.createElement('li');
-        li.className = 'list-group-item d-flex justify-content-between align-items-center';
-        li.textContent = user;
-        if ((isSales && targetGroup === 'customers') || (!isSales && targetGroup === 'sales')) {
-            const callBtn = document.createElement('button');
-            callBtn.className = 'btn btn-primary btn-sm';
-            callBtn.textContent = 'Call';
-            callBtn.onclick = () => callUser(user);
-            callBtn.disabled = inCall;
-            li.appendChild(callBtn);
-        }
-        list.appendChild(li);
-    });
-}
 
 function showLogoutButton() {
     if (!document.getElementById('logout-btn')) {

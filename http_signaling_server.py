@@ -125,6 +125,19 @@ async def handle_websocket(websocket):
                             if ws and ws.state == State.OPEN:
                                 await ws.send(json.dumps({'event': 'call_ended'}))
                         await notify_both_services('call_ended', {'call_id': call_id})
+                elif event == "call_rejected":
+                    call_id = data.get('call_id')
+                    if not call_id:
+                        await websocket.send(json.dumps({'event': 'error', 'message': 'Missing call_id'}))
+                        continue
+                    if call_id in calls:
+                        caller_ws = calls[call_id]['caller_ws']
+                        callee_ws = calls[call_id]['callee_ws']
+                        del calls[call_id]
+                        for ws in [caller_ws, callee_ws]:
+                            if ws and ws.state == State.OPEN:
+                                await ws.send(json.dumps({'event': 'call_rejected'}))
+                        await notify_both_services('call_rejected', {'call_id': call_id})                    
                 elif event == 'logout':
                     for group in users:
                         if websocket in [u['ws'] for u in users[group].values()]:

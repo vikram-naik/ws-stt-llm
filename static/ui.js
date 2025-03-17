@@ -1,9 +1,10 @@
 // ui.js (/static/ui.js)
 console.log('ui.js loaded');
 
-// Define global user lists
+// Define global user lists and call state
 window.sales = [];
 window.customers = [];
+let currentPeer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM fully loaded');
@@ -115,9 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
             usersToShow.forEach(username => {
                 const li = document.createElement('li');
                 li.className = `list-group-item ${currentGroup === 'sales' ? 'customer-bg' : 'sales-bg'} d-flex align-items-center`;
-                const inCall = currentCall.call_id && (username === currentCall.peer?.user || 
-                    (currentCall.username === currentCall.peer?.user && username === currentCall.peer?.user) ||
-                    (currentCall.peer && currentCall.username !== currentCall.peer.user && username === currentCall.username));
+                const inCall = currentCall.call_id && (username === currentCall.peer?.user || username === currentPeer);
                 li.innerHTML = `
                     <i class="bi bi-person me-2"></i>
                     <span>${username}</span>
@@ -175,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.callEnded = function() {
         try {
             console.log('Call ended');
+            currentPeer = null; // Reset peer
             window.updateUserList({ sales: window.sales, customers: window.customers });
             bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
         } catch (error) {
