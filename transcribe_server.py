@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import socket
 import ssl
 import websockets
 from websockets import State
@@ -47,6 +48,9 @@ async def transcribe_audio(call_id):
 
 async def transcribe(websocket):
     client_ip = websocket.remote_address[0]
+    sock = websocket.transport.get_extra_info('socket')
+    if sock:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     username = None
     try:
         async for message in websocket:
@@ -69,7 +73,8 @@ async def transcribe(websocket):
                         'callee_group': data['callee_group'],
                         'queue': asyncio.Queue()
                     }
-                    asr.start_session(call_id, data.get('language', 'en'))
+                    language = data.get('language', 'en')
+                    asr.start_session(call_id, language=language)
                     asyncio.create_task(transcribe_audio(call_id))
                     logger.info(f"Started transcription for {call_id}")
                 elif event == 'call_ended':

@@ -23,7 +23,10 @@ class VoskASR:
             return
         if call_id not in self.sessions:
             self.sessions[call_id] = {
-                'recognizer': vosk.KaldiRecognizer(self.models[language], self.target_rate, '{"max_silence": 0.1, "min_speech_duration": 0.2, "silence_probability_threshold": 0.99}'),
+                'recognizer': vosk.KaldiRecognizer(
+                    self.models[language], 
+                    self.target_rate, 
+                    '{"max_silence": 0.1, "min_speech_duration": 0.2, "silence_probability_threshold": 0.99}'),
                 'language': language
             }
             logger.info(f"Started Vosk session for call {call_id} with language {language}")
@@ -45,6 +48,7 @@ class VoskASR:
 
             # Vosk transcription
             recognizer = self.sessions[call_id]['recognizer']
+            logger.info(f"recognizer: [{recognizer}], lang: [{self.sessions[call_id]['language']}]")
             if recognizer.AcceptWaveform(pcm_data):
                 result = json.loads(recognizer.Result())
                 transcript = result.get("text", "")

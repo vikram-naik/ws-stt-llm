@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import socket
 import ssl
 import websockets
 from websockets import State
@@ -11,8 +12,11 @@ logger = logging.getLogger(__name__)
 udp_clients = {}
 calls = {}
 
-async def udp_relay(websocket):
+async def relay(websocket):
     client_ip = websocket.remote_address[0]
+    sock = websocket.transport.get_extra_info('socket')
+    if sock:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     username = None
     audio_buffer = []
     try:
@@ -71,7 +75,7 @@ async def udp_relay(websocket):
 async def udp_server():
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain(certfile='cert.pem', keyfile='key.pem')
-    server = websockets.serve(udp_relay, '0.0.0.0', 8002, ssl=ssl_context)
+    server = websockets.serve(relay, '0.0.0.0', 8002, ssl=ssl_context)
     async with server:
         logger.info("UDP relay WebSocket started on wss://0.0.0.0:8002")
         await asyncio.Future()
