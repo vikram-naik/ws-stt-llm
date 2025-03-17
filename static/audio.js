@@ -67,13 +67,14 @@ async function initAudio() {
                     updateUserList(data);
                     break;
                 case 'incoming_call':
-                    currentCall.peer = { user: data.from_user };
+                    currentCall.peer = { from_user: data.from_user };
                     currentCall.call_id = data.call_id;
                     ringtone.play().catch(e => console.error('Ringtone error:', e));
                     showIncomingCall(data.from_user, data.call_id);
                     break;
                 case 'call_accepted':
-                    currentCall.peer = { user: data.from_user };
+                    console.log(data)
+                    currentCall.peer = { from_user: data.from_user, to_user: data.to_user };
                     ringback.pause();
                     ringback.currentTime = 0;
                     startAudioStream();
@@ -103,7 +104,7 @@ async function initAudio() {
     window.callUser = async function(to_user) {
         if (currentCall.call_id) return showError('Already in a call');
         currentCall.call_id = `call_${Date.now()}_${currentCall.username}`;
-        currentCall.peer = { group: currentCall.group === 'sales' ? 'customers' : 'sales', user: to_user };
+        currentCall.peer = { group: currentCall.group === 'sales' ? 'customers' : 'sales', to_user: to_user };
         socket.send(JSON.stringify({
             event: 'call_user',
             from_group: currentCall.group,
@@ -136,7 +137,7 @@ async function initAudio() {
         socket.send(JSON.stringify({
             event: 'accept_call',
             from_group: currentCall.peer.group,
-            from_user: currentCall.peer.user,
+            from_user: currentCall.peer?.from_user,
             to_user: currentCall.username,
             call_id: currentCall.call_id
         }));
@@ -153,7 +154,7 @@ async function initAudio() {
             socket.send(JSON.stringify({
                 event: 'call_rejected',
                 from_group: currentCall.peer.group,
-                from_user: currentCall.peer.user,
+                from_user: currentCall.peer?.from_user,
                 to_user: currentCall.username,
                 call_id: currentCall.call_id
             }));

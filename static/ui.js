@@ -80,10 +80,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.updatePartial = function(text, group) {
         try {
-            const partialBubble = document.getElementById('partial-bubble');
-            if (!partialBubble) throw new Error('Partial bubble element not found');
+            const bubbleId = group === 'sales' ? 'sales-partial-bubble' : 'customers-partial-bubble';
+            const partialBubble = document.getElementById(bubbleId);
+            if (!partialBubble) throw new Error(`${bubbleId} element not found`);
             partialBubble.innerHTML = text || '';
-            partialBubble.className = `chat-bubble-${group} partial-bubble`;
+            partialBubble.scrollTop = partialBubble.scrollHeight;
         } catch (error) {
             console.error('Error in updatePartial:', error);
         }
@@ -98,6 +99,10 @@ document.addEventListener('DOMContentLoaded', () => {
             bubble.innerHTML = text;
             finals.appendChild(bubble);
             finals.scrollTop = finals.scrollHeight;
+            // Clear the corresponding partial bubble
+            const bubbleId = group === 'sales' ? 'sales-partial-bubble' : 'customers-partial-bubble';
+            const partialBubble = document.getElementById(bubbleId);
+            if (partialBubble) partialBubble.innerHTML = '';
         } catch (error) {
             console.error('Error in addFinal:', error);
         }
@@ -116,7 +121,9 @@ document.addEventListener('DOMContentLoaded', () => {
             usersToShow.forEach(username => {
                 const li = document.createElement('li');
                 li.className = `list-group-item ${currentGroup === 'sales' ? 'customer-bg' : 'sales-bg'} d-flex align-items-center`;
-                const inCall = currentCall.call_id && (username === currentCall.peer?.user || username === currentPeer);
+                console.log("updateUserList username :: " + username)
+                const inCall = currentCall.call_id && (username === currentCall.peer?.from_user || username === currentCall.peer?.to_user );
+                console.log("updateUserList inCall :: " + inCall)
                 li.innerHTML = `
                     <i class="bi bi-person me-2"></i>
                     <span>${username}</span>
@@ -217,5 +224,5 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error in showMainUI:', error);
         }
-    };    
+    };
 });

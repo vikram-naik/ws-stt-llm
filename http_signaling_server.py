@@ -101,7 +101,15 @@ async def handle_websocket(websocket):
                         await websocket.send(json.dumps({'event': 'error', 'message': 'Missing call_id'}))
                         continue
                     if call_id in calls:
-                        await calls[call_id]['caller_ws'].send(json.dumps({'event': 'call_accepted'}))
+                        await calls[call_id]['caller_ws'].send(json.dumps({
+                            'event': 'call_accepted', 
+                            'call_id': call_id,                            
+                            'from_user': calls[call_id]['from_user'],
+                            'to_user': calls[call_id]['to_user'],
+                            'caller_group': calls[call_id]['caller_group'],
+                            'callee_group': calls[call_id]['callee_group'],
+                            'language': data.get('language', 'en')  # Pass language for transcription
+                        }))
                         await notify_both_services('call_accepted', {
                             'call_id': call_id,
                             'from_user': calls[call_id]['from_user'],
