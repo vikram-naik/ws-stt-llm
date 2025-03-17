@@ -9,27 +9,48 @@ logger = logging.getLogger(__name__)
 class VoskASR:
     def __init__(self):
         self.models = {
-            "en": vosk.Model("vosk-model/vosk-model-en-us-0.22"),
-            "ja": vosk.Model("vosk-model/vosk-model-small-ja-0.22")
+            "en": { 
+                'model': vosk.Model("vosk-model/vosk-model-en-us-0.22"),
+                'config': '{"max_silence": 0.1, "min_speech_duration": 0.2, "silence_probability_threshold": 0.99}' 
+            },
+            "ja": { 
+                'model': vosk.Model("vosk-model/vosk-model-small-ja-0.22") 
+            }
         }
         self.sessions = {}
         self.buffers = defaultdict(bytes)
         self.target_rate = 16000
         logger.info("Vosk ASR initialized with models: en (large), ja")
 
-    def start_session(self, call_id, language):
+    def __get_recognizer(self, language):        
+        recognizer = None
         if language not in self.models:
-            logger.error(f"Unsupported language: {language}. Supported: en, ja")
-            return
+            logger.error(f"Unsupported caller language: {language}. Supported: en, ja")
+        else:
+            model = self.models[language]['model']
+            config = self.models[language]['config'] if 'config' in self.models[language] else None            
+            if config:
+                recognizer = vosk.KaldiRecognizer(model, self.target_rate, config)
+            else:
+                recognizer = vosk.KaldiRecognizer(model, self.target_rate)
+        return recognizer
+
+    def start_session(self, call_id, caller, caller_language, callee, callee_language):
+        
         if call_id not in self.sessions:
             self.sessions[call_id] = {
-                'recognizer': vosk.KaldiRecognizer(
-                    self.models[language], 
-                    self.target_rate, 
-                    '{"max_silence": 0.1, "min_speech_duration": 0.2, "silence_probability_threshold": 0.99}'),
-                'language': language
+                'caller': {
+                    'username': caller,
+                    'recognizer': self.__get_recognizer(language=caller_language),
+                    'language': caller_language
+                },
+                'callee': {
+                    'username': callee,
+                    'recognizer': self.__get_recognizer(language=callee_language),
+                    'language': callee_language
+                }
             }
-            logger.info(f"Started Vosk session for call {call_id} with language {language}")
+            logger.info(f"Started Vosk session for call {call_id} caller_lang: {caller_language}, callee_lang:{callee_language}")
 
     async def process_audio(self, call_id, audio_chunk, username=None):
         try:
@@ -46,19 +67,30 @@ class VoskASR:
 
             username = username or "unknown"
 
+            caller = self.sessions[call_id]['caller']
+            callee = self.sessions[call_id]['callee']
+            recognizer = None
+            language = None
+            if caller['username'] == username:
+                recognizer = caller['recognizer']
+                language = caller['language']
+            elif callee['username'] == username:
+                recognizer = callee['recognizer']
+                language = callee['language']
             # Vosk transcription
-            recognizer = self.sessions[call_id]['recognizer']
-            logger.info(f"recognizer: [{recognizer}], lang: [{self.sessions[call_id]['language']}]")
-            if recognizer.AcceptWaveform(pcm_data):
-                result = json.loads(recognizer.Result())
-                transcript = result.get("text", "")
-                logger.info(f"Final transcript for {call_id} ({username}): '{transcript}'")
-                return transcript, True
-            else:
-                partial = json.loads(recognizer.PartialResult())
-                transcript = partial.get("partial", "")
-                logger.info(f"Partial transcript for {call_id} ({username}): '{transcript}'")
-                return transcript, False
+            if recognizer:
+                logger.info(f"recognizer: [{recognizer}], lang: [{language}]")
+                if recognizer.AcceptWaveform(pcm_data):
+                    result = json.loads(recognizer.Result())
+                    transcript = result.get("text", "")
+                    logger.info(f"Final transcript for {call_id} ({username}): '{transcript}'")
+                    return transcript, True
+                else:
+                    partial = json.loads(recognizer.PartialResult())
+                    transcript = partial.get("partial", "")
+                    logger.info(f"Partial transcript for {call_id} ({username}): '{transcript}'")
+                    return transcript, False
+            raise Exception(f"Couldn't locate recogniner for call id:[{call_id}]")
         except Exception as e:
             logger.error(f"Error processing audio for {call_id}: {e}", exc_info=True)
             return "", False

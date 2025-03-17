@@ -111,16 +111,14 @@ async def handle_websocket(websocket):
                             'from_user': calls[call_id]['from_user'],
                             'to_user': calls[call_id]['to_user'],
                             'caller_group': calls[call_id]['caller_group'],
-                            'callee_group': calls[call_id]['callee_group'],
-                            'language': data.get('language', 'en')  # Pass language for transcription
+                            'callee_group': calls[call_id]['callee_group']
                         }))
                         await notify_both_services('call_accepted', {
                             'call_id': call_id,
                             'from_user': calls[call_id]['from_user'],
                             'to_user': calls[call_id]['to_user'],
                             'caller_group': calls[call_id]['caller_group'],
-                            'callee_group': calls[call_id]['callee_group'],
-                            'language': data.get('language', 'en')  # Pass language for transcription
+                            'callee_group': calls[call_id]['callee_group']
                         })
                     else:
                         await websocket.send(json.dumps({'event': 'error', 'message': 'Call not found'}))

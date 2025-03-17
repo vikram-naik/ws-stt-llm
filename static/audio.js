@@ -153,8 +153,7 @@ async function initAudio() {
             from_group: currentCall.peer.group,
             from_user: currentCall.peer?.from_user,
             to_user: currentCall.username,
-            call_id: currentCall.call_id,
-            language: language
+            call_id: currentCall.call_id
         }));
         startAudioStream();
         callAccepted();

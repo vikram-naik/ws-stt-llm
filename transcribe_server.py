@@ -66,15 +66,18 @@ async def transcribe(websocket):
                     logger.info(f"Registered {username} from {client_ip} as {group}")
                 elif event == 'call_accepted':
                     call_id = data['call_id']
+                    caller_language = transcribe_clients[data['from_user']]['language']
+                    callee_language = transcribe_clients[data['to_user']]['language']
                     calls[call_id] = {
                         'caller': data['from_user'],
                         'callee': data['to_user'],
                         'caller_group': data['caller_group'],
                         'callee_group': data['callee_group'],
+                        'caller_language': caller_language,
+                        'callee_language': callee_language,
                         'queue': asyncio.Queue()
                     }
-                    language = data.get('language', 'en')
-                    asr.start_session(call_id, language=language)
+                    asr.start_session(call_id, data['from_user'], caller_language, data['to_user'], callee_language)
                     asyncio.create_task(transcribe_audio(call_id))
                     logger.info(f"Started transcription for {call_id}")
                 elif event == 'call_ended':
