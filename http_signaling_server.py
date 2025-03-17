@@ -52,7 +52,9 @@ async def notify_both_services(event, data):
         transcribe_socket = None
 
 async def handle_websocket(websocket):
-    websocket.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Disable Nagle's
+    sock = websocket.transport.get_extra_info('socket')
+    if sock:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     client_ip = websocket.remote_address[0]
     try:
         async for message in websocket:
