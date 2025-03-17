@@ -301,30 +301,7 @@ function register(group = null, username = null) {
     currentCall.group = group;
     currentCall.username = username;
     currentCall.language = language;
-    document.getElementById('entryScreen').classList.add('d-none');
-    document.getElementById('mainUI').classList.remove('d-none');
-    if (group === 'sales') document.getElementById('transcription').classList.remove('d-none');
-    showLogoutButton();
-}
-
-function showCallControls() {
-    document.getElementById('call-controls').classList.remove('d-none');
-}
-
-
-function showLogoutButton() {
-    if (!document.getElementById('logout-btn')) {
-        const logoutBtn = document.createElement('button');
-        logoutBtn.id = 'logout-btn';
-        logoutBtn.className = 'btn btn-danger mt-3';
-        logoutBtn.textContent = 'Logout';
-        logoutBtn.onclick = () => {
-            socket.send(JSON.stringify({ event: 'logout', username: currentCall.username }));
-            document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
-            window.location.reload();
-        };
-        document.getElementById('mainUI').appendChild(logoutBtn);
-    }
+    showMainUI(group);
 }
 
 async function startAudioStream() {

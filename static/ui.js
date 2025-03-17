@@ -204,4 +204,18 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error in showError:', error);
         }
     };
+
+    window.showMainUI = function(group) {
+        try {
+            document.getElementById('entryScreen').classList.add('d-none');
+            document.getElementById('mainUI').classList.remove('d-none');
+            if (group === 'sales') {
+                document.getElementById('transcription').classList.remove('d-none');
+            } else {
+                document.getElementById('transcription').classList.add('d-none');
+            }
+        } catch (error) {
+            console.error('Error in showMainUI:', error);
+        }
+    };    
 });
