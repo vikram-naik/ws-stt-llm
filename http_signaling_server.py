@@ -156,6 +156,11 @@ async def handle_websocket(websocket):
                             await broadcast_user_status()
                             await notify_both_services('logout', {'ip': client_ip})
                             break
+                elif event == 'ping':  # New ping handler
+                    await websocket.send(json.dumps({
+                        'event': 'pong',
+                        'timestamp': data.get('timestamp')  # Echo back client's timestamp
+                    }))                        
             else:
                 logging.debug(f"Ignoring non-JSON message from {client_ip}")
     except Exception as e:

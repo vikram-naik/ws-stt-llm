@@ -74,7 +74,21 @@ body {
 }
 
 .bubble-container:has(.chat-bubble-customers) .bubble-username {
-    color: #6C757D; /* Grey for customers */
+    color: #6C757D;
+}
+
+#latencyMetric {
+    font-size: 14px;
+    color: #6C757D; /* Grey for neutrality */
+    padding: 4px 8px;
+    border-radius: 12px;
+    background-color: #f8f9fa; /* Light grey background */
+    display: flex;
+    align-items: center;
+}
+
+#latencyMetric i {
+    margin-right: 4px;
 }
 
 @keyframes blink {

@@ -10,6 +10,8 @@ ringback.loop = true;
 const DEBUG = false;
 
 let mediaSource, sourceBuffer, chunkQueue = [], isProcessing = false;
+let latencyHistory = []; // Store last 10 latency values
+const MAX_HISTORY = 10; // Running average over 10 pings
 
 async function initAudio() {
     socket = new WebSocket(`wss://${host}:8001`, [], { pingInterval: 30000 });
@@ -31,7 +33,11 @@ async function initAudio() {
     const supportedLanguages = ['en', 'ja'];
     document.getElementById('language').value = supportedLanguages.includes(osLanguage) ? osLanguage : 'en';
 
-    socket.onopen = () => { if (DEBUG) console.log('Connected to signaling server'); };
+    socket.onopen = () => { 
+        if (DEBUG) console.log('Connected to signaling server'); 
+        // Start latency measurement every 5 seconds
+        latencyInterval = setInterval(measureLatency, 5000);        
+    };
     udpSocket.onopen = () => {
         if (DEBUG) console.log('UDP relay WebSocket opened');
         if (currentCall.group && currentCall.username) {
@@ -91,6 +97,14 @@ async function initAudio() {
                 case 'call_rejected':
                     rejectCall();
                     break;
+                case 'pong':
+                    const sentTime = data.timestamp;
+                    const latency = Date.now() - sentTime;
+                    latencyHistory.push(latency);
+                    if (latencyHistory.length > MAX_HISTORY) latencyHistory.shift(); // Keep last 10
+                    const avgLatency = Math.round(latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length);
+                    updateLatency(latency, avgLatency);
+                    break;                
                 case 'error':
                     console.error('Server error:', data.message);
                     showError(data.message);
@@ -194,6 +208,9 @@ async function initAudio() {
 
     socket.onclose = async () => {
         console.warn('Signaling WebSocket closed—reconnecting');
+        clearInterval(latencyInterval);
+        latencyHistory = []; // Reset history on disconnect
+        updateLatency(0, 0); // Reset UI
         socket = new WebSocket(`wss://${host}:8001`, [], { pingInterval: 30000 });
         await new Promise(resolve => socket.onopen = resolve);
         if (currentCall.username) register(currentCall.group, currentCall.username);
@@ -209,6 +226,23 @@ async function initAudio() {
         await new Promise(resolve => transcribeSocket.onopen = resolve);
     };
 }
+
+function measureLatency() {
+    if (socket.readyState === WebSocket.OPEN) {
+        const timestamp = Date.now();
+        socket.send(JSON.stringify({ event: 'ping', timestamp: timestamp }));
+    }
+}
+
+window.updateLatency = function(latency, avgLatency) {
+    try {
+        const latencySpan = document.getElementById('latencyMetric').querySelector('span');
+        if (!latencySpan) throw new Error('Latency span not found');
+        latencySpan.textContent = `Now: ${latency} ms | Avg: ${avgLatency} ms`;
+    } catch (error) {
+        console.error('Error in updateLatency:', error);
+    }
+};
 
 async function endCall() {
     if (DEBUG) console.log('Ending call');
