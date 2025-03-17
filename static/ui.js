@@ -1,10 +1,9 @@
 // ui.js (/static/ui.js)
 console.log('ui.js loaded');
 
-// Define global user lists and call state
+// Define global user lists
 window.sales = [];
 window.customers = [];
-let currentPeer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM fully loaded');
@@ -81,9 +80,19 @@ document.addEventListener('DOMContentLoaded', () => {
     window.updatePartial = function(text, group) {
         try {
             const bubbleId = group === 'sales' ? 'sales-partial-bubble' : 'customers-partial-bubble';
+            const usernameId = group === 'sales' ? 'sales-partial-username' : 'customers-partial-username';
             const partialBubble = document.getElementById(bubbleId);
+            const usernameSpan = document.getElementById(usernameId);
+            const container = partialBubble.parentElement; // .bubble-container
             if (!partialBubble) throw new Error(`${bubbleId} element not found`);
+            if (!usernameSpan) throw new Error(`${usernameId} element not found`);
+            if (!currentCall.call_id) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'block';
             partialBubble.innerHTML = text || '';
+            usernameSpan.textContent = group === 'sales' ? currentCall.username : currentCall.peer?.to_user || currentCall.peer?.from_user || '';
             partialBubble.scrollTop = partialBubble.scrollHeight;
         } catch (error) {
             console.error('Error in updatePartial:', error);
@@ -94,12 +103,18 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const finals = document.getElementById('finals');
             if (!finals) throw new Error('Finals element not found');
+            const bubbleContainer = document.createElement('div');
+            bubbleContainer.className = 'bubble-container';
+            const usernameSpan = document.createElement('span');
+            usernameSpan.className = 'bubble-username';
+            usernameSpan.textContent = group === 'sales' ? currentCall.username : currentCall.peer?.to_user || currentCall.peer?.from_user || '';
             const bubble = document.createElement('div');
             bubble.className = `chat-bubble-${group}`;
             bubble.innerHTML = text;
-            finals.appendChild(bubble);
+            bubbleContainer.appendChild(usernameSpan);
+            bubbleContainer.appendChild(bubble);
+            finals.appendChild(bubbleContainer);
             finals.scrollTop = finals.scrollHeight;
-            // Clear the corresponding partial bubble
             const bubbleId = group === 'sales' ? 'sales-partial-bubble' : 'customers-partial-bubble';
             const partialBubble = document.getElementById(bubbleId);
             if (partialBubble) partialBubble.innerHTML = '';
@@ -121,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
             usersToShow.forEach(username => {
                 const li = document.createElement('li');
                 li.className = `list-group-item ${currentGroup === 'sales' ? 'customer-bg' : 'sales-bg'} d-flex align-items-center`;
-                const inCall = currentCall.call_id && (username === currentCall.peer?.from_user || username === currentCall.peer?.to_user );
+                const inCall = currentCall.call_id && (username === currentCall.peer?.from_user || username === currentCall.peer?.to_user);
                 li.innerHTML = `
                     <i class="bi bi-person me-2"></i>
                     <span>${username}</span>
@@ -138,6 +153,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const logoutBtn = document.getElementById('logoutBtn');
             if (currentCall.call_id) logoutBtn.setAttribute('disabled', 'true');
             else logoutBtn.removeAttribute('disabled');
+            // Hide partial bubbles if no call
+            const salesContainer = document.getElementById('sales-partial-bubble')?.parentElement;
+            const customersContainer = document.getElementById('customers-partial-bubble')?.parentElement;
+            if (salesContainer) salesContainer.style.display = currentCall.call_id ? 'block' : 'none';
+            if (customersContainer) customersContainer.style.display = currentCall.call_id ? 'block' : 'none';
         } catch (error) {
             console.error('Error in updateUserList:', error);
         }
@@ -169,6 +189,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.callAccepted = function() {
         try {
             console.log('callAccepted triggered');
+            updatePartial('', 'sales');
+            updatePartial('', 'customers');
             window.updateUserList({ sales: window.sales, customers: window.customers });
             bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
         } catch (error) {
@@ -179,7 +201,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.callEnded = function() {
         try {
             console.log('Call ended');
-            currentPeer = null; // Reset peer
+            updatePartial('', 'sales');
+            updatePartial('', 'customers');
             window.updateUserList({ sales: window.sales, customers: window.customers });
             bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
         } catch (error) {

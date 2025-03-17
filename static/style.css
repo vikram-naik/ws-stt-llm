@@ -3,20 +3,22 @@ body {
     background-color: #F5F6F5;
 }
 
+/* /static/style.css */
 .chat-bubble-sales {
     background-color: #E6F0FA;
     color: #007BFF;
     max-width: 75%;
-    margin-left: auto;
+    margin-left: auto; /* Right-aligned for sales */
     border-radius: 15px;
     padding: 8px 12px;
     margin-bottom: 10px;
 }
 
 .chat-bubble-customers {
-    background-color: #dee1e4; /* Darker grey for customers */
+    background-color: #dee1e4; /* Light grey for customers */
     color: #6C757D;
     max-width: 75%;
+    margin-right: auto; /* Left-aligned for customers */
     border-radius: 15px;
     padding: 8px 12px;
     margin-bottom: 10px;
@@ -25,6 +27,60 @@ body {
 .partial-bubble {
     opacity: 0.7;
     transition: opacity 0.2s;
+}
+
+.partial-bubble:empty::after {
+    content: '...';
+    display: inline-block;
+    font-size: 20px; /* Fatter dots */
+    font-weight: bold;
+    animation: blink 1.5s infinite;
+}
+
+.bubble-container {
+    position: relative;
+    margin-bottom: 10px;
+    width: 100%;
+}
+
+.bubble-username {
+    font-size: 12px; /* Small font */
+    display: block;
+    margin-bottom: 2px;
+}
+
+/* Align partial usernames */
+#sales-partial-username {
+    color: #007BFF; /* Blue for sales */
+    text-align: right; /* Right-aligned */
+}
+
+#customers-partial-username {
+    color: #6C757D; /* Grey for customers */
+    text-align: left; /* Left-aligned */
+}
+
+/* Align finals based on bubble type */
+.bubble-container:has(.chat-bubble-sales) {
+    text-align: right;
+}
+
+.bubble-container:has(.chat-bubble-sales) .bubble-username {
+    color: #007BFF; /* Blue for sales */
+}
+
+.bubble-container:has(.chat-bubble-customers) {
+    text-align: left;
+}
+
+.bubble-container:has(.chat-bubble-customers) .bubble-username {
+    color: #6C757D; /* Grey for customers */
+}
+
+@keyframes blink {
+    0% { opacity: 0.2; }
+    50% { opacity: 1; }
+    100% { opacity: 0.2; }
 }
 
 .user-list,
