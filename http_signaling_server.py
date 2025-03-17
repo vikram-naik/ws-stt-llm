@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import socket
 import ssl
 import websockets
 from aiohttp import web
@@ -51,6 +52,7 @@ async def notify_both_services(event, data):
         transcribe_socket = None
 
 async def handle_websocket(websocket):
+    websocket.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Disable Nagle's
     client_ip = websocket.remote_address[0]
     try:
         async for message in websocket:
