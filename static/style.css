@@ -13,8 +13,8 @@ body {
     margin-bottom: 10px;
 }
 
-.chat-bubble-customer {
-    background-color: #F8F9FA;
+.chat-bubble-customers {
+    background-color: #dee1e4; /* Darker grey for customers */
     color: #6C757D;
     max-width: 75%;
     border-radius: 15px;

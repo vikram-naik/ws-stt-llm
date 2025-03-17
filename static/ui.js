@@ -121,9 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
             usersToShow.forEach(username => {
                 const li = document.createElement('li');
                 li.className = `list-group-item ${currentGroup === 'sales' ? 'customer-bg' : 'sales-bg'} d-flex align-items-center`;
-                console.log("updateUserList username :: " + username)
                 const inCall = currentCall.call_id && (username === currentCall.peer?.from_user || username === currentCall.peer?.to_user );
-                console.log("updateUserList inCall :: " + inCall)
                 li.innerHTML = `
                     <i class="bi bi-person me-2"></i>
                     <span>${username}</span>
