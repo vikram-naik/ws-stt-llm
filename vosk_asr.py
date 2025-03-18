@@ -1,6 +1,5 @@
 import vosk
 import logging
-from collections import defaultdict
 import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -10,22 +9,24 @@ class VoskASR:
     def __init__(self):
         self.models = {
             "en": { 
-                'model': vosk.Model("vosk-model/vosk-model-en-us-0.22"),
-                'config': '{"max_silence": 0.1, "min_speech_duration": 0.2, "silence_probability_threshold": 0.99}' 
+                'model': vosk.Model("vosk-model/vosk-model-en-us-0.22")
             },
             "ja": { 
-                'model': vosk.Model("vosk-model/vosk-model-small-ja-0.22") 
+                'model': vosk.Model("vosk-model/vosk-model-small-ja-0.22"),
+                'config': '{"max_silence": 0.05, "min_speech_duration": 0.2, "silence_probability_threshold": 0.9}'
             }
         }
         self.sessions = {}
-        self.buffers = defaultdict(bytes)
-        self.target_rate = 16000
-        logger.info("Vosk ASR initialized with models: en (large), ja")
+        self.buffers = {}
+        self.target_rate = 48000
+        self.bytes_per_sample = 2
+        self.min_buffer_duration = 0.2 # in seconds.
+        logger.info("Vosk ASR initialized with models: en (large), ja (small)")
 
     def __get_recognizer(self, language):        
         recognizer = None
         if language not in self.models:
-            logger.error(f"Unsupported caller language: {language}. Supported: en, ja")
+            logger.error(f"Unsupported language: {language}. Supported: en, ja")
         else:
             model = self.models[language]['model']
             config = self.models[language]['config'] if 'config' in self.models[language] else None            
@@ -36,7 +37,6 @@ class VoskASR:
         return recognizer
 
     def start_session(self, call_id, caller, caller_language, callee, callee_language):
-        
         if call_id not in self.sessions:
             self.sessions[call_id] = {
                 'caller': {
@@ -50,23 +50,24 @@ class VoskASR:
                     'language': callee_language
                 }
             }
+            self.buffers[call_id] = {}
+            self.buffers[call_id][caller] = b''
+            self.buffers[call_id][callee] = b''
             logger.info(f"Started Vosk session for call {call_id} caller_lang: {caller_language}, callee_lang:{callee_language}")
 
-    async def process_audio(self, call_id, audio_chunk, username=None):
+    async def process_audio(self, call_id, audio_chunk, username):
         try:
+            if username is None:
+                raise Exception("Username can't be none.")
             if call_id not in self.sessions:
                 logger.warning(f"No session for {call_id}")
                 return "", False
-            self.buffers[call_id] += audio_chunk
-            logger.debug(f"Buffer len for {call_id}: [{len(self.buffers[call_id])}]")
-            if len(self.buffers[call_id]) < 32000:  # ~1s at 16kHz, 16-bit
+            self.buffers[call_id][username] += audio_chunk
+            min_buffer_size = int(self.target_rate * self.bytes_per_sample * self.min_buffer_duration)  # ~96000 at 48kHz
+            if len(self.buffers[call_id][username]) < min_buffer_size:
                 return "", False
-            
-            pcm_data = self.buffers[call_id][:32000]  # Slice ~1s
-            self.buffers[call_id] = self.buffers[call_id][32000:]  # Keep remainder
-
-            username = username or "unknown"
-
+            pcm_data = self.buffers[call_id][username][:min_buffer_size]
+            self.buffers[call_id][username] = self.buffers[call_id][username][min_buffer_size:]
             caller = self.sessions[call_id]['caller']
             callee = self.sessions[call_id]['callee']
             recognizer = None
@@ -77,9 +78,8 @@ class VoskASR:
             elif callee['username'] == username:
                 recognizer = callee['recognizer']
                 language = callee['language']
-            # Vosk transcription
             if recognizer:
-                logger.info(f"recognizer: [{recognizer}], lang: [{language}]")
+                logger.info(f"Processing for {call_id} ({username}), lang: {language}")
                 if recognizer.AcceptWaveform(pcm_data):
                     result = json.loads(recognizer.Result())
                     transcript = result.get("text", "")
@@ -90,7 +90,7 @@ class VoskASR:
                     transcript = partial.get("partial", "")
                     logger.info(f"Partial transcript for {call_id} ({username}): '{transcript}'")
                     return transcript, False
-            raise Exception(f"Couldn't locate recogniner for call id:[{call_id}]")
+            raise Exception(f"Couldn't locate recognizer for call id: {call_id}")
         except Exception as e:
             logger.error(f"Error processing audio for {call_id}: {e}", exc_info=True)
             return "", False
@@ -98,17 +98,19 @@ class VoskASR:
     def end_session(self, call_id):
         if call_id in self.sessions:
             transcript = ""
-            recognizer = self.sessions[call_id]['recognizer']
-            if self.buffers[call_id]:
-                pcm_data = self.buffers[call_id]
-                username = "unknown"
-                if recognizer.AcceptWaveform(pcm_data):
-                    result = json.loads(recognizer.Result())
-                else:
-                    result = json.loads(recognizer.FinalResult())  # Force final result
-                transcript = result.get("text", "")
-                if transcript:
-                    logger.info(f"Final transcript at end for {call_id} ({username}): '{transcript}'")
+            caller = self.sessions[call_id]['caller']
+            callee = self.sessions[call_id]['callee']
+            recognizers = [(caller["username"],caller['recognizer']),(callee["username"],callee['recognizer'])]            
+            for username, recognizer in recognizers:                
+                if self.buffers[call_id][username]:
+                    pcm_data = self.buffers[call_id][username]
+                    if recognizer.AcceptWaveform(pcm_data):
+                        result = json.loads(recognizer.Result())
+                    else:
+                        result = json.loads(recognizer.FinalResult())  # Force final result
+                    transcript = result.get("text", "")
+                    if transcript:
+                        logger.info(f"Final transcript at end for {call_id} ({username}): '{transcript}'")
             del self.sessions[call_id]
             self.buffers.pop(call_id, None)
             return transcript, True if transcript else False

@@ -37,10 +37,28 @@ body {
     animation: blink 1.5s infinite;
 }
 
+/* Parent container */
+#conversationPanel {
+    overflow-y: hidden; /* No parent scroll */
+}
+
+/* Finals */
+#finals {
+    max-height: 80vh; /* Finals take most space, partials below */
+    overflow-y: auto; /* Scroll enabled */
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+}
+
+/* Chrome, Safari, and newer Edge */
+#finals::-webkit-scrollbar {
+    display: none;
+}
+
 .bubble-container {
-    position: relative;
+    /* position: relative; */
     margin-bottom: 10px;
-    width: 100%;
+    /* width: 100%; */
 }
 
 .bubble-username {

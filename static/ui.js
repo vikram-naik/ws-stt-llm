@@ -83,17 +83,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const usernameId = group === 'sales' ? 'sales-partial-username' : 'customers-partial-username';
             const partialBubble = document.getElementById(bubbleId);
             const usernameSpan = document.getElementById(usernameId);
-            const container = partialBubble.parentElement; // .bubble-container
             if (!partialBubble) throw new Error(`${bubbleId} element not found`);
             if (!usernameSpan) throw new Error(`${usernameId} element not found`);
             if (!currentCall.call_id) {
-                container.style.display = 'none';
+                partialBubble.parentElement.style.display = 'none';
                 return;
             }
-            container.style.display = 'block';
+            partialBubble.parentElement.style.display = 'block';
             partialBubble.innerHTML = text || '';
             usernameSpan.textContent = group === 'sales' ? currentCall.username : currentCall.peer?.to_user || currentCall.peer?.from_user || '';
-            partialBubble.scrollTop = partialBubble.scrollHeight;
+            partialBubble.scrollTop = partialBubble.scrollHeight; // Scroll partial if needed
         } catch (error) {
             console.error('Error in updatePartial:', error);
         }
@@ -113,11 +112,11 @@ document.addEventListener('DOMContentLoaded', () => {
             bubble.innerHTML = text;
             bubbleContainer.appendChild(usernameSpan);
             bubbleContainer.appendChild(bubble);
-            finals.appendChild(bubbleContainer);
-            finals.scrollTop = finals.scrollHeight;
+            finals.appendChild(bubbleContainer); // Append—newest at bottom
+            finals.scrollTop = finals.scrollHeight; // Scroll to bottom
             const bubbleId = group === 'sales' ? 'sales-partial-bubble' : 'customers-partial-bubble';
             const partialBubble = document.getElementById(bubbleId);
-            if (partialBubble) partialBubble.innerHTML = '';
+            if (partialBubble) partialBubble.innerHTML = ''; // Clear partial
         } catch (error) {
             console.error('Error in addFinal:', error);
         }
@@ -246,4 +245,5 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error in showMainUI:', error);
         }
     };
+
 });

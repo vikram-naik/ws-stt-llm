@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 users = {'sales': {}, 'customers': {}}
 calls = {}
 websocket_clients = {}
-udp_relay_socket = None
+relay_socket = None
 transcribe_socket = None
 
 async def broadcast_user_status():
@@ -43,11 +43,11 @@ async def notify_service(socket, service_name, event, data):
     return True
 
 async def notify_both_services(event, data):
-    global udp_relay_socket, transcribe_socket
-    udp_success = await notify_service(udp_relay_socket, "UDP relay", event, data)
+    global relay_socket, transcribe_socket
+    udp_success = await notify_service(relay_socket, "relay", event, data)
     transcribe_success = await notify_service(transcribe_socket, "transcription server", event, data)
     if not udp_success:
-        udp_relay_socket = None
+        relay_socket = None
     if not transcribe_success:
         transcribe_socket = None
 
@@ -61,7 +61,7 @@ async def handle_websocket(websocket):
             if isinstance(message, str):
                 data = json.loads(message)
                 event = data.get('event')
-                logging.debug(f"Received from {client_ip}: {data}")
+                logging.info(f"Received from {client_ip}: {data}")
                 if event == 'register':
                     group = data.get('group')
                     username = data.get('username')
@@ -162,7 +162,7 @@ async def handle_websocket(websocket):
                     await websocket.send(json.dumps({
                         'event': 'pong',
                         'timestamp': data.get('timestamp')  # Echo back client's timestamp
-                    }))                        
+                    }))                            
             else:
                 logging.debug(f"Ignoring non-JSON message from {client_ip}")
     except Exception as e:
@@ -226,10 +226,10 @@ async def main():
         logging.error(f"Failed to start signaling WebSocket server on 8001: {e}")
         return
 
-    global udp_relay_socket, transcribe_socket
+    global relay_socket, transcribe_socket
     try:
-        udp_relay_socket = await websockets.connect('wss://localhost:8002', ssl=ssl_context_client)
-        logging.info("Connected to UDP relay server at wss://localhost:8002")
+        relay_socket = await websockets.connect('wss://localhost:8002', ssl=ssl_context_client)
+        logging.info("Connected to Audio relay server at wss://localhost:8002")
     except Exception as e:
         logging.error(f"Failed to connect to UDP relay server: {e}")
 

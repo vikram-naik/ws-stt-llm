@@ -20,7 +20,7 @@ async function initAudio() {
     audioElement = document.createElement('audio');
     audioElement.autoplay = true;
     document.body.appendChild(audioElement);
-    audioContext = new AudioContext({ sampleRate: 16000 });
+    audioContext = new AudioContext({ sampleRate: 48000 });
 
     mediaSource = new MediaSource();
     audioElement.src = URL.createObjectURL(mediaSource);
@@ -344,10 +344,11 @@ async function startAudioStream() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
-                sampleRate: 16000,
-                noiseSuppression: true,
-                echoCancellation: true,
-                autoGainControl: true
+                sampleRate: 48000,
+                noiseSuppression: false,
+                echoCancellation: false,
+                autoGainControl: false,
+                latency: 0.01
             }
         });
         console.log('Microphone access granted, stream:', stream);
@@ -368,9 +369,11 @@ async function startAudioStream() {
         recorder.start(20);
 
         await audioContext.audioWorklet.addModule('/static/audioWorklet.js');
-        const pcmNode = new AudioWorkletNode(audioContext, 'pcm-processor', {
+        
+        pcmNode = new AudioWorkletNode(audioContext, 'pcm-processor', {
             processorOptions: { bufferSize: 1024 }
         });
+
         pcmNode.port.onmessage = (event) => {
             const pcmBlob = new Blob([event.data], { type: 'audio/pcm' });
             if (DEBUG) console.log('PCM chunk, first 10 samples:', event.data.slice(0, 10));
@@ -379,7 +382,21 @@ async function startAudioStream() {
                 if (DEBUG) console.log('Sent PCM packet for transcription (sales only):', pcmBlob.size);
             }
         };
-        sourceNode.connect(pcmNode);
+
+        //create highpass and lowpass filters to reduce noise and background hums
+        const highPassFilter = audioContext.createBiquadFilter();
+        highPassFilter.type = "highpass";
+        highPassFilter.frequency.value = 300; // Cut frequencies below 300 Hz.
+
+        const lowPassFilter = audioContext.createBiquadFilter();
+        lowPassFilter.type = "lowpass";
+        lowPassFilter.frequency.value = 3400; // (300 - 3400 is the human speech range rest is ignored)
+
+        //source --> highPassFilter --> lowPassFilter --> pcmNode --> audioContext.destination
+        //sourceNode.connect(pcmNode);
+        sourceNode.connect(highPassFilter)
+        highPassFilter.connect(lowPassFilter);
+        lowPassFilter.connect(pcmNode)
         pcmNode.connect(audioContext.destination);
 
         if (DEBUG) console.log('MediaRecorder and PCM processing started successfully');

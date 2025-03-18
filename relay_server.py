@@ -9,7 +9,7 @@ from websockets import State
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-udp_clients = {}
+audio_clients = {}
 calls = {}
 
 async def relay(websocket):
@@ -28,7 +28,7 @@ async def relay(websocket):
                 if event == 'register':
                     group = data['group']
                     username = data['username']
-                    udp_clients[username] = {'ws': websocket}
+                    audio_clients[username] = {'ws': websocket}
                     logger.info(f"Registered client {username} from {client_ip}")
                 elif event == 'call_accepted':
                     call_id = data['call_id']
@@ -49,7 +49,7 @@ async def relay(websocket):
                     call_id = next((cid for cid, call in calls.items() if username in (call['caller'], call['callee'])), None)
                     if call_id:
                         peer = calls[call_id]['callee'] if username == calls[call_id]['caller'] else calls[call_id]['caller']
-                        peer_ws = udp_clients.get(peer, {}).get('ws')
+                        peer_ws = audio_clients.get(peer, {}).get('ws')
                         if peer_ws and peer_ws.state == State.OPEN:
                             await peer_ws.send(message)
                             logger.debug(f"Relayed WebM Opus to {peer}: {len(message)} bytes")
@@ -66,19 +66,19 @@ async def relay(websocket):
                 else:
                     logger.warning(f"Client {client_ip} not registered—discarding audio")
     except Exception as e:
-        logger.error(f"UDP relay error: {e}", exc_info=True)
+        logger.error(f"Relay error: {e}", exc_info=True)
     finally:
-        if username and username in udp_clients:
-            del udp_clients[username]
+        if username and username in audio_clients:
+            del audio_clients[username]
             logger.warning(f"Disconnected {username} ({client_ip})")
 
-async def udp_server():
+async def relay_server():
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain(certfile='cert.pem', keyfile='key.pem')
     server = websockets.serve(relay, '0.0.0.0', 8002, ssl=ssl_context)
     async with server:
-        logger.info("UDP relay WebSocket started on wss://0.0.0.0:8002")
+        logger.info("Audio Relay WebSocket started on wss://0.0.0.0:8002")
         await asyncio.Future()
 
 if __name__ == '__main__':
-    asyncio.run(udp_server())
+    asyncio.run(relay_server())
