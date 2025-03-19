@@ -253,7 +253,7 @@ async function endCall() {
         await audioContext.close();
     }
     recorder = null;
-    audioContext = new AudioContext({ sampleRate: 16000 });
+    audioContext = new AudioContext({ sampleRate: 48000 });
     if (mediaSource.readyState === 'open') {
         mediaSource.endOfStream();
     }
@@ -368,8 +368,7 @@ async function startAudioStream() {
         };
         recorder.start(20);
 
-        await audioContext.audioWorklet.addModule('/static/audioWorklet.js');
-        
+        await audioContext.audioWorklet.addModule('/static/audioWorklet.js');        
         pcmNode = new AudioWorkletNode(audioContext, 'pcm-processor', {
             processorOptions: { bufferSize: 1024 }
         });
@@ -393,14 +392,19 @@ async function startAudioStream() {
         lowPassFilter.frequency.value = 3400; // (300 - 3400 is the human speech range rest is ignored)
 
         //source --> highPassFilter --> lowPassFilter --> pcmNode --> audioContext.destination
-        //sourceNode.connect(pcmNode);
+        // sourceNode.connect(pcmNode);
         sourceNode.connect(highPassFilter)
         highPassFilter.connect(lowPassFilter);
         lowPassFilter.connect(pcmNode)
         pcmNode.connect(audioContext.destination);
 
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+            console.log('AudioContext resumed, state:', audioContext.state);
+        }        
+
         if (DEBUG) console.log('MediaRecorder and PCM processing started successfully');
-        if (currentCall.group === 'sales') document.getElementById('transcription').classList.remove('d-none');
+        if (currentCall.group === 'sales') document.getElementById('insightsPanel').classList.remove('d-none');
     } catch (e) {
         console.error('Error starting audio stream:', e.name, e.message);
         alert('Failed to access microphone. Please allow permissions and try again.');

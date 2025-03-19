@@ -1,3 +1,18 @@
+/* Define Roboto locally */
+@font-face {
+    font-family: 'Roboto';
+    src: url('/static/fonts/roboto-latin.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Roboto';
+    src: url('/static/fonts/roboto-latin.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+}
+
 body {
     font-family: 'Roboto', sans-serif;
     background-color: #F5F6F5;
@@ -8,7 +23,7 @@ body {
     background-color: #E6F0FA;
     color: #007BFF;
     max-width: 75%;
-    margin-left: auto; /* Right-aligned for sales */
+    margin-right: auto; /* Right-aligned for sales */
     border-radius: 15px;
     padding: 8px 12px;
     margin-bottom: 10px;
@@ -18,7 +33,7 @@ body {
     background-color: #dee1e4; /* Light grey for customers */
     color: #6C757D;
     max-width: 75%;
-    margin-right: auto; /* Left-aligned for customers */
+    margin-left: auto; /* Left-aligned for customers */
     border-radius: 15px;
     padding: 8px 12px;
     margin-bottom: 10px;
@@ -70,17 +85,17 @@ body {
 /* Align partial usernames */
 #sales-partial-username {
     color: #007BFF; /* Blue for sales */
-    text-align: right; /* Right-aligned */
+    text-align: left; /* Right-aligned */
 }
 
 #customers-partial-username {
     color: #6C757D; /* Grey for customers */
-    text-align: left; /* Left-aligned */
+    text-align: right; /* Left-aligned */
 }
 
 /* Align finals based on bubble type */
 .bubble-container:has(.chat-bubble-sales) {
-    text-align: right;
+    text-align: left;
 }
 
 .bubble-container:has(.chat-bubble-sales) .bubble-username {
@@ -88,7 +103,7 @@ body {
 }
 
 .bubble-container:has(.chat-bubble-customers) {
-    text-align: left;
+    text-align: right;
 }
 
 .bubble-container:has(.chat-bubble-customers) .bubble-username {

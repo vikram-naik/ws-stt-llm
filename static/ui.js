@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
                 document.getElementById('mainUI').classList.add('d-none');
                 document.getElementById('entryScreen').classList.remove('d-none');
-                document.getElementById('transcription').classList.add('d-none');
+                document.getElementById('insightsPanel').classList.add('d-none');
                 logoutBtn.classList.add('d-none');
             } catch (error) {
                 console.error('Error in logout:', error);
@@ -192,20 +192,11 @@ document.addEventListener('DOMContentLoaded', () => {
             updatePartial('', 'customers');
             window.updateUserList({ sales: window.sales, customers: window.customers });
             bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
+            if (currentCall.group === 'sales') {
+                document.getElementById('insightsPanel').classList.remove('d-none'); // Updated
+            }            
         } catch (error) {
             console.error('Error in callAccepted:', error);
-        }
-    };
-
-    window.callEnded = function() {
-        try {
-            console.log('Call ended');
-            updatePartial('', 'sales');
-            updatePartial('', 'customers');
-            window.updateUserList({ sales: window.sales, customers: window.customers });
-            bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
-        } catch (error) {
-            console.error('Error in callEnded:', error);
         }
     };
 
@@ -213,13 +204,33 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const insightsList = document.getElementById('insightsList');
             if (!insightsList) throw new Error('Insights list element not found');
+            if (insightsList.children.length === 1) {
+                const placeholder = document.getElementById('insightPlaceholder');
+                if (placeholder) placeholder.remove();
+            }
             const li = document.createElement('li');
             li.className = 'list-group-item';
-            li.textContent = text;
+            const pre = document.createElement('pre');
+            pre.textContent = text;
+            li.appendChild(pre);
             insightsList.appendChild(li);
             insightsList.scrollTop = insightsList.scrollHeight;
         } catch (error) {
             console.error('Error in addInsight:', error);
+        }
+    };
+    
+    window.callEnded = function() {
+        try {
+            console.log('Call ended');
+            updatePartial('', 'sales');
+            updatePartial('', 'customers');
+            window.updateUserList({ sales: window.sales, customers: window.customers });
+            bootstrap.Modal.getInstance(document.getElementById('incomingCall'))?.hide();
+            // Uncomment if you want to hide insights post-call
+            // document.getElementById('insightsPanel').classList.add('d-none');
+        } catch (error) {
+            console.error('Error in callEnded:', error);
         }
     };
 
@@ -237,9 +248,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('entryScreen').classList.add('d-none');
             document.getElementById('mainUI').classList.remove('d-none');
             if (group === 'sales') {
-                document.getElementById('transcription').classList.remove('d-none');
+                document.getElementById('insightsPanel').classList.remove('d-none');
             } else {
-                document.getElementById('transcription').classList.add('d-none');
+                document.getElementById('insightsPanel').classList.add('d-none');
             }
         } catch (error) {
             console.error('Error in showMainUI:', error);

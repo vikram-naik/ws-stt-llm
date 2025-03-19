@@ -5,3 +5,4 @@ __pycache__
 vosk-model
 logs
 audio
+llm

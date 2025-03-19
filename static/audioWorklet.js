@@ -8,8 +8,7 @@ class PCMProcessor extends AudioWorkletProcessor {
 
     process(inputs, outputs) {
         const input = inputs[0][0]; // First channel, Float32
-        if (!input) return true;
-
+        if (!input) return true;        
         for (let i = 0; i < input.length; i++) {
             this.buffer[this.pos++] = input[i];
             if (this.pos === this.bufferSize) {
@@ -28,7 +27,6 @@ class PCMProcessor extends AudioWorkletProcessor {
                 this.pos = 0;
             }
         }
-
         return true;
     }
 }
