@@ -20,8 +20,8 @@ body {
 
 /* Style each insight item, scoped to insights-panel */
 .insights-panel .insight-item {
-    margin-bottom: 15px; /* Padding between insights */
-    padding: 15px; /* Inner padding for consistency */
+    margin-bottom: 10px; /* Padding between insights */
+    padding: 10px; /* Inner padding for consistency */
     border-radius: 5px; /* Match Bootstrap’s aesthetic */
     background-color: #fff; /* White background */
     border: 1px solid #dee2e6; /* Subtle border */
