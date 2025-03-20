@@ -18,6 +18,74 @@ body {
     background-color: #F5F6F5;
 }
 
+/* Style each insight item, scoped to insights-panel */
+.insights-panel .insight-item {
+    margin-bottom: 15px; /* Padding between insights */
+    padding: 15px; /* Inner padding for consistency */
+    border-radius: 5px; /* Match Bootstrap’s aesthetic */
+    background-color: #fff; /* White background */
+    border: 1px solid #dee2e6; /* Subtle border */
+}
+
+/* Restore top border for subsequent insight items */
+.insights-panel .insight-item + .insight-item {
+    border-top-width: 1px; /* Override Bootstrap’s default, scoped to insights-panel */
+}
+
+/* Style the rendered Markdown content */
+.insight-content {
+    font-family: 'Roboto', sans-serif; /* Match body font */
+    word-wrap: break-word; /* Wrap long words */
+    overflow-wrap: break-word; /* Broader browser support */
+    max-width: 100%; /* Stay within container */
+    line-height: 1.6; /* Improve readability */
+    color: #6C757D; /* Match customer text color for neutrality */
+}
+
+/* Style Markdown elements */
+.insight-content p {
+    margin-bottom: 10px; /* Spacing between paragraphs */
+}
+
+.insight-content strong {
+    font-weight: 500; /* Use Roboto 500 for bold */
+    color: #007BFF; /* Blue for emphasis, matching sales theme */
+}
+
+.insight-content em {
+    color: #6C757D; /* Grey for italic, matching customers */
+}
+
+.insight-content ul, .insight-content ol {
+    padding-left: 20px; /* Indent lists */
+    margin-bottom: 10px; /* Space below lists */
+}
+
+.insight-content li {
+    margin-bottom: 5px; /* Space between list items */
+}
+
+.insight-content ul {
+    list-style-type: circle; /* Matches the ◦ look */
+}
+
+.insight-content code {
+    background-color: #f8f9fa; /* Light grey background for code */
+    padding: 2px 5px; /* Small padding */
+    border-radius: 3px; /* Rounded corners */
+    white-space: pre-wrap; /* Wrap inline code */
+    color: #6C757D; /* Grey text */
+}
+
+.insight-content pre {
+    background-color: #f8f9fa; /* Light grey for code blocks */
+    padding: 10px; /* More padding for blocks */
+    border-radius: 5px; /* Rounded corners */
+    overflow-x: hidden; /* No horizontal scroll */
+    white-space: pre-wrap; /* Wrap code blocks */
+    color: #6C757D; /* Grey text */
+}
+
 /* /static/style.css */
 .chat-bubble-sales {
     background-color: #E6F0FA;

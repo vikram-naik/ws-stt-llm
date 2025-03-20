@@ -209,10 +209,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (placeholder) placeholder.remove();
             }
             const li = document.createElement('li');
-            li.className = 'list-group-item';
-            const pre = document.createElement('pre');
-            pre.textContent = text;
-            li.appendChild(pre);
+            li.className = 'list-group-item insight-item'; // Add custom class
+            const div = document.createElement('div');
+            div.className = 'insight-content';
+            if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                div.innerHTML = marked.parse(text);
+            } else {
+                console.warn('Marked not available, rendering plain text');
+                div.textContent = text;
+            }
+            li.appendChild(div);
             insightsList.appendChild(li);
             insightsList.scrollTop = insightsList.scrollHeight;
         } catch (error) {
