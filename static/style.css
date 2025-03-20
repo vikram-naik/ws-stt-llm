@@ -54,15 +54,20 @@ body {
 
 /* Parent container */
 #conversationPanel {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 80px); /* Adjust for navbar height (60px) + padding */
+    padding: 20px;
     overflow-y: hidden; /* No parent scroll */
 }
 
 /* Finals */
 #finals {
-    max-height: 80vh; /* Finals take most space, partials below */
+    flex: 1 1 auto; /* Take remaining space */
     overflow-y: auto; /* Scroll enabled */
     -ms-overflow-style: none; /* IE and Edge */
     scrollbar-width: none; /* Firefox */
+    margin-bottom: 20px; /* Space between finals and partials */
 }
 
 /* Chrome, Safari, and newer Edge */
@@ -70,29 +75,30 @@ body {
     display: none;
 }
 
-.bubble-container {
-    /* position: relative; */
-    margin-bottom: 10px;
-    /* width: 100%; */
+/* Partial bubble containers */
+#conversationPanel > .bubble-container {
+    flex: 0 0 auto; /* Fixed height, no grow/shrink */
+    margin-bottom: 10px; /* Consistent spacing */
 }
 
-.bubble-username {
-    font-size: 12px; /* Small font */
-    display: block;
-    margin-bottom: 2px;
+/* Ensure partial bubbles don’t grow too much */
+.partial-bubble {
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    max-height: 100px; /* Limit height to prevent overlap */
+    overflow-y: auto; /* Scroll if content exceeds */
 }
 
 /* Align partial usernames */
 #sales-partial-username {
-    color: #007BFF; /* Blue for sales */
-    text-align: left; /* Right-aligned */
+    color: #007BFF;
+    text-align: left;
 }
 
 #customers-partial-username {
-    color: #6C757D; /* Grey for customers */
-    text-align: right; /* Left-aligned */
+    color: #6C757D;
+    text-align: right;
 }
-
 /* Align finals based on bubble type */
 .bubble-container:has(.chat-bubble-sales) {
     text-align: left;
