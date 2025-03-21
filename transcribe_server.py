@@ -5,7 +5,7 @@ import socket
 import ssl
 import websockets
 from websockets import State
-from vosk_asr import VoskASR
+from vosk_asr import VoskASR, CONFIG
 from collections import defaultdict
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,14 +39,15 @@ async def llm_consumer(call_id):
                     if transcript != "":
                         await llm_socket.send(json.dumps({
                             'call_id': call_id,
-                            'text': transcript
+                            'text': transcript,
+                            'prompt': CONFIG['llm_prompt']
                         }))
                         insight_data = await llm_socket.recv()
                         insight = json.loads(insight_data)
                         client = transcribe_clients.get(sales_user)
                         if client and client['ws'].state == State.OPEN:
                             await client['ws'].send(json.dumps(insight))
-                            logger.info(f"Sent insight to {sales_user}: {insight['text']}")
+                            logger.debug(f"Sent insight to {sales_user}: {insight['text']}")
                 llm_queue.task_done()
         except Exception as e:
             logger.error(f"LLM consumer error: {e}", exc_info=True)
@@ -74,7 +75,7 @@ async def transcribe_audio(call_id):
                         'text': transcript,
                         'is_final': is_final
                     }))
-                    logger.info(f"Sent transcription to {sales_user}: {transcript} (group: {group})")
+                    logger.debug(f"Sent transcription to {sales_user}: {transcript} (group: {group})")
                 if is_final and group == 'customers':
                     await calls[call_id].get('llmQueue').put((call_id, transcript, sales_user))  
                 last_partials[group] = transcript if not is_final else ""
@@ -133,6 +134,11 @@ async def transcribe(websocket):
                         await calls[call_id]['llmQueue'].put((None, None, None))  # Signal task to stop
                         del calls[call_id]
                         logger.info(f"Ended transcription for {call_id}")
+                elif event == 'update_config':  # Handle config updates
+                    new_config = data.get('config', {})
+                    CONFIG.update(new_config)
+                    asr._load_config()  # Apply to existing instance
+                    logger.info(f"Transcription server updated config: {CONFIG}")                        
             elif isinstance(message, (bytes, bytearray)):
                 if username:
                     call_id = next((cid for cid, call in calls.items() if username in (call['caller'], call['callee'])), None)

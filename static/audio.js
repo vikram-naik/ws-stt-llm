@@ -37,6 +37,8 @@ async function initAudio() {
         if (DEBUG) console.log('Connected to signaling server'); 
         // Start latency measurement every 5 seconds
         latencyInterval = setInterval(measureLatency, 5000);        
+        // Initial load
+        fetchConfigFromServer();
     };
     udpSocket.onopen = () => {
         if (DEBUG) console.log('UDP relay WebSocket opened');
@@ -104,7 +106,11 @@ async function initAudio() {
                     if (latencyHistory.length > MAX_HISTORY) latencyHistory.shift(); // Keep last 10
                     const avgLatency = Math.round(latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length);
                     updateLatency(latency, avgLatency);
-                    break;                
+                    break;
+                case 'config_updated':
+                    console.log('Config updated:', data.config);
+                    updateSettingsFromServer(data.config);                    
+                    break;                                    
                 case 'error':
                     console.error('Server error:', data.message);
                     showError(data.message);
@@ -370,7 +376,7 @@ async function startAudioStream() {
 
         await audioContext.audioWorklet.addModule('/static/audioWorklet.js');        
         pcmNode = new AudioWorkletNode(audioContext, 'pcm-processor', {
-            processorOptions: { bufferSize: 1024 }
+            processorOptions: { bufferSize: 960 }
         });
 
         pcmNode.port.onmessage = (event) => {

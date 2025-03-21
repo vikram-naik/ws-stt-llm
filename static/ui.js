@@ -263,4 +263,87 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Settings modal open - fetch latest config
+    const settingsModal = document.getElementById('settingsModal');
+    if (settingsModal) {
+        settingsModal.addEventListener('show.bs.modal', () => {
+            fetchConfigFromServer();
+        });
+    }
+
+    // Settings save button
+    const saveSettingsBtn = document.getElementById('saveSettings');
+    if (saveSettingsBtn) {
+        saveSettingsBtn.addEventListener('click', saveSettings);
+    }
+
 });
+
+
+function fetchConfigFromServer() {
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ event: 'get_config' }));
+        console.log('Requested current config from server');
+    } else {
+        console.warn('Socket not open, loading from localStorage');
+        loadSettingsFromLocalStorage();
+    }
+}
+
+function updateSettingsFromServer(config) {
+    try {
+        localStorage.setItem('jarvisSettings', JSON.stringify(config));
+        loadSettingsFromLocalStorage();
+    } catch (error) {
+        console.error('Error updating settings from server:', error);
+    }
+}
+
+function loadSettingsFromLocalStorage() {
+    try {
+        const settings = JSON.parse(localStorage.getItem('jarvisSettings')) || {};
+        document.getElementById('useVad').checked = settings.use_vad !== undefined ? settings.use_vad : true;
+        document.getElementById('vadAggressiveness').value = settings.vad_aggressiveness || 3;
+        document.getElementById('rmsThreshold').value = settings.rms_threshold || 0.0025;
+        document.getElementById('minBufferDuration').value = settings.min_buffer_duration || 0.2;
+        document.getElementById('confidenceThreshold').value = settings.confidence_threshold || 0.7;
+        document.getElementById('llmPrompt').value = settings.llm_prompt || "Analyze this customer transcript: '{transcript}'\nProvide: Sentiment (Positive/Negative/Neutral), Key Point, Suggestion.\n Do not provide any explanations.";
+        document.getElementById('maxGap').value = settings.max_gap || 0.5;
+    } catch (error) {
+        console.error('Error loading settings from localStorage:', error);
+    }
+}
+
+function saveSettings() {
+    const form = document.getElementById('settingsForm');
+    if (!form.checkValidity()) {
+        form.classList.add('was-validated'); // Trigger Bootstrap validation styles
+        return; // Stop if invalid
+    }
+
+    try {
+        const settings = {
+            use_vad: document.getElementById('useVad').checked,
+            vad_aggressiveness: parseInt(document.getElementById('vadAggressiveness').value),
+            rms_threshold: parseFloat(document.getElementById('rmsThreshold').value),
+            min_buffer_duration: parseFloat(document.getElementById('minBufferDuration').value),
+            confidence_threshold: parseFloat(document.getElementById('confidenceThreshold').value),
+            llm_prompt: document.getElementById('llmPrompt').value,
+            max_gap: parseFloat(document.getElementById('maxGap').value)
+        };
+
+        localStorage.setItem('jarvisSettings', JSON.stringify(settings));
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                event: 'update_config',
+                config: settings
+            }));
+            console.log('Sent config update to signaling server:', settings);
+        }
+        form.classList.remove('was-validated'); // Reset validation state
+        bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
+    } catch (error) {
+        console.error('Error saving settings:', error);
+        showError('An error occurred while saving settings.');
+    }
+}

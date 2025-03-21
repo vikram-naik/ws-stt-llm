@@ -10,3 +10,4 @@ PyOgg
 audioread
 webm
 llama-cpp-python
+webrtcvad

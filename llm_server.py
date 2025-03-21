@@ -16,7 +16,7 @@ async def handle_llm(websocket):
             data = json.loads(message)
             transcript = data['text']
             call_id = data['call_id']
-            prompt = f"Analyze this customer transcript: '{transcript}'\nProvide: Sentiment (Positive/Negative/Neutral), Key Point, Suggestion.\n Do not provide any explanations."
+            prompt = data['prompt'].format(transcript=transcript)
             insight = llm(prompt, max_tokens=100, temperature=0.4)
             insight_text = insight['choices'][0]['text'].strip()
             await websocket.send(json.dumps({
@@ -24,7 +24,7 @@ async def handle_llm(websocket):
                 'call_id': call_id,
                 'text': insight_text
             }))
-            logger.info(f"Generated insight for {call_id}: {insight_text}")
+            logger.debug(f"Generated insight for {call_id}: {insight_text}")
         except Exception as e:
             logger.error(f"LLM error: {e}", exc_info=True)
 

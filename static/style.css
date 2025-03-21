@@ -18,6 +18,31 @@ body {
     background-color: #F5F6F5;
 }
 
+/* settings dialogue */
+#settingsModal .form-control.is-invalid {
+    border-color: #dc3545; /* Bootstrap red */
+}
+
+#settingsModal .invalid-feedback {
+    display: none; /* Hidden by default */
+}
+
+#settingsModal .was-validated .form-control:invalid ~ .invalid-feedback {
+    display: block; /* Show when invalid */
+}
+
+#settingsModal .form-label {
+    font-weight: 500; /* Slightly bolder labels */
+}
+
+#settingsModal .form-control {
+    font-size: 0.9rem; /* Slightly smaller text for compactness */
+}
+
+#llmPrompt {
+    font-family: 'Roboto', monospace; /* Monospace for prompt clarity */
+}
+
 /* Style each insight item, scoped to insights-panel */
 .insights-panel .insight-item {
     margin-bottom: 10px; /* Padding between insights */

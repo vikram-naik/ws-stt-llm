@@ -16,6 +16,24 @@ websocket_clients = {}
 relay_socket = None
 transcribe_socket = None
 
+
+# Load config
+CONFIG_FILE = 'config.json'
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    else:
+        raise FileNotFoundError(f"Config file [{CONFIG_FILE}] not found")
+
+CONFIG = load_config()
+
+def save_config(config):
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=4)
+    logging.info(f"Config saved: {config}")
+
 async def broadcast_user_status():
     sales = list(users['sales'].keys())
     customers = list(users['customers'].keys())
@@ -162,7 +180,19 @@ async def handle_websocket(websocket):
                     await websocket.send(json.dumps({
                         'event': 'pong',
                         'timestamp': data.get('timestamp')  # Echo back client's timestamp
-                    }))                            
+                    }))               
+                elif event == 'update_config':  # New config handler
+                    new_config = data.get('config', {})
+                    CONFIG.update(new_config)
+                    save_config(CONFIG)
+                    # Notify transcription server
+                    await notify_service(transcribe_socket, "transcription server", "update_config", {"config": CONFIG})
+                    logging.info(f"Config updated and propagated: {CONFIG}")
+                    await websocket.send(json.dumps({"event": "config_updated", "config": CONFIG}))          
+                elif event == 'get_config':  # New get config handler
+                    # we are re-using the config_updated event on client side.
+                    await websocket.send(json.dumps({"event": "config_updated", "config": CONFIG}))
+                    logging.info(f"Sent current config to {client_ip}: {CONFIG}")                                           
             else:
                 logging.debug(f"Ignoring non-JSON message from {client_ip}")
     except Exception as e:

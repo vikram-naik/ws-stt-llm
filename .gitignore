@@ -6,3 +6,4 @@ vosk-model
 logs
 audio
 llm
+config.json
